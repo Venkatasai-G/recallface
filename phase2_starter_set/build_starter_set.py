@@ -123,22 +123,23 @@ def create_fixed_xT(
     seed: int = 2026,
 ) -> torch.Tensor:
     """
-    Create the single stochastic xT tensor that is reused for all
-    12 starter faces.
+    Create one stochastic xT tensor.
+
+    The same xT is reused for all starter faces,
+    as required by the Phase 2 starter-set procedure.
     """
 
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
 
     return torch.randn(
-        starter_size,
+        1,
         3,
         image_size,
         image_size,
         generator=generator,
     )
-
-
+    
 def save_latents(
     latents: torch.Tensor,
     output_path: Path,

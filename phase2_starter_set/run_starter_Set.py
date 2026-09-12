@@ -172,7 +172,12 @@ def main():
     print("============================================")
 
     starter_latents_device = starter_latents.to(device)
-    fixed_xT_device = fixed_xT.to(device)
+    fixed_xT_device = fixed_xT.to(device).expand(
+        STARTER_SET_SIZE,
+        -1,
+        -1,
+        -1,
+    )
 
     images = generate_face(
         model=model,
