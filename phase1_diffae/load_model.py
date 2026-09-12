@@ -50,10 +50,36 @@ _patch_legacy_checkpoint_loader()
 # ============================================================
 # DiffAE imports
 # ============================================================
+import importlib
+import sys
 
-from experiment import LitModel
-from config import TrainConfig
-from choices import ModelName
+# ------------------------------------------------------------
+# DiffAE uses generic module names such as "config".
+# RecallFace also has config.py, so temporarily remove the
+# RecallFace config module while importing official DiffAE.
+# ------------------------------------------------------------
+
+recallface_config = sys.modules.pop("config", None)
+
+# Make sure the official DiffAE repository has priority.
+if str(DIFFAE_REPO) in sys.path:
+    sys.path.remove(str(DIFFAE_REPO))
+
+sys.path.insert(0, str(DIFFAE_REPO))
+
+# Import the official DiffAE modules.
+diffae_config = importlib.import_module("config")
+experiment_module = importlib.import_module("experiment")
+choices_module = importlib.import_module("choices")
+
+# Restore RecallFace's config module for the rest of our project.
+if recallface_config is not None:
+    sys.modules["config"] = recallface_config
+
+# Expose the DiffAE classes/functions needed by this loader.
+LitModel = experiment_module.LitModel
+TrainConfig = diffae_config.TrainConfig
+ModelName = choices_module.ModelName
 
 
 # ============================================================
