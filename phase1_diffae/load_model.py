@@ -7,15 +7,15 @@ import torch
 # Official DiffAE repository
 # ============================================================
 
-DIFFAE_REPO = (
-    Path(__file__).resolve().parents[1]
-    / "pretrained"
-    / "diffae"
-)
+DIFFAE_REPO = Path("/content/diffae")
+
+if not DIFFAE_REPO.exists():
+    raise FileNotFoundError(
+        f"Official DiffAE repository not found: {DIFFAE_REPO}"
+    )
 
 if str(DIFFAE_REPO) not in sys.path:
     sys.path.insert(0, str(DIFFAE_REPO))
-
 
 # ============================================================
 # Legacy PyTorch / PyTorch Lightning compatibility
