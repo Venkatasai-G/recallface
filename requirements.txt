@@ -1,0 +1,16 @@
+torch
+torchvision
+diffusers
+transformers
+face_recognition
+deepface
+streamlit
+wandb
+numpy
+scikit-learn
+pillow
+opencv-python
+pandas
+matplotlib
+tqdm
+pyyaml
