@@ -127,7 +127,8 @@ class SessionSimulator:
             )
 
             candidate_latents = (
-                direction
+                current_tensor
+                + direction
                 + noise * torch.sqrt(variance)
             )
 
