@@ -47,6 +47,12 @@ class ExplorationSampler(nn.Module):
             nn.Linear(hidden_dim, latent_dim),
         )
 
+        # Phase 6 bootstrap initialization:
+        # start with a small, stable exploration variance.
+        final_layer = self.network[-1]
+        nn.init.zeros_(final_layer.weight)
+        nn.init.constant_(final_layer.bias, -4.0)
+
     def forward(
         self,
         z: torch.Tensor,

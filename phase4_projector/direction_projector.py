@@ -88,6 +88,12 @@ class DirectionProjector(nn.Module):
             output_dim,
         )
 
+        # Phase 6 bootstrap initialization:
+        # start with an approximately zero direction so that the
+        # untrained projector does not move the latent off-manifold.
+        nn.init.zeros_(self.output_projection.weight)
+        nn.init.zeros_(self.output_projection.bias)
+
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
         Project a 512-dimensional latent vector.
