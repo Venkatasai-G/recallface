@@ -77,12 +77,15 @@ class DiffAECandidateGenerator:
         print("Loading DiffAE...")
 
         # Import our existing Phase 1 loader.
-        from phase1_diffae.load_model import load_diffae_model
+        # Import the existing Phase 1 DiffAE loader.
+        from phase1_diffae.load_model import load_diffae
 
-        self.model, self.conf = load_diffae_model(
-            checkpoint_path=self.checkpoint_path,
-            device=str(self.device),
+        self.model, self.conf, loaded_device = load_diffae(
+            self.checkpoint_path
         )
+
+        # Keep the device selected by Phase 1.
+        self.device = loaded_device
 
         # Load the fixed stochastic latent from Phase 2.
         self.xT = torch.load(
