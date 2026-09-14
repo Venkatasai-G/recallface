@@ -141,7 +141,7 @@ class SessionSimulator:
 
         self.latent_clip = float(latent_clip)
 
-        def clamp_latents_to_empirical_distribution(
+    def clamp_latents_to_empirical_distribution(
         self,
         latents: torch.Tensor,
     ) -> torch.Tensor:
