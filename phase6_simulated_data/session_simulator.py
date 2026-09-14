@@ -46,8 +46,11 @@ class SessionSimulator:
         projector: DirectionProjector,
         sampler: ExplorationSampler,
         starter_latents: np.ndarray,
+        latent_mean: np.ndarray | None = None,
+        latent_std: np.ndarray | None = None,
         device: str = "cpu",
         num_candidates: int = 12,
+        latent_clip: float = 3.0,
     ):
         if not 12 <= num_candidates <= 20:
             raise ValueError(
@@ -80,6 +83,94 @@ class SessionSimulator:
         self.starter_latents = starter_latents
         self.device = device
         self.num_candidates = num_candidates
+
+                # Optional Phase 6 latent-manifold safety statistics.
+        # These come from the pretrained DiffAE latent distribution.
+        if latent_mean is None or latent_std is None:
+            if latent_mean is not None or latent_std is not None:
+                raise ValueError(
+                    "latent_mean and latent_std must be provided together."
+                )
+
+            self.latent_mean = None
+            self.latent_std = None
+        else:
+            latent_mean = np.asarray(
+                latent_mean,
+                dtype=np.float32,
+            )
+
+            latent_std = np.asarray(
+                latent_std,
+                dtype=np.float32,
+            )
+
+            if latent_mean.shape != (512,):
+                raise ValueError(
+                    f"latent_mean must have shape (512,), "
+                    f"got {latent_mean.shape}"
+                )
+
+            if latent_std.shape != (512,):
+                raise ValueError(
+                    f"latent_std must have shape (512,), "
+                    f"got {latent_std.shape}"
+                )
+
+            if np.any(latent_std <= 0):
+                raise ValueError(
+                    "latent_std must contain only positive values."
+                )
+
+            if latent_clip <= 0:
+                raise ValueError(
+                    "latent_clip must be positive."
+                )
+
+            self.latent_mean = torch.tensor(
+                latent_mean,
+                dtype=torch.float32,
+                device=device,
+            )
+
+            self.latent_std = torch.tensor(
+                latent_std,
+                dtype=torch.float32,
+                device=device,
+            )
+
+        self.latent_clip = float(latent_clip)
+
+        def clamp_latents_to_empirical_distribution(
+        self,
+        latents: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Keep candidate latents within the empirical
+        pretrained DiffAE latent distribution.
+
+        The latent is normalized per dimension using
+        the empirical mean/std, clipped to a fixed
+        z-score range, then transformed back.
+        """
+
+        if self.latent_mean is None or self.latent_std is None:
+            return latents
+
+        normalized = (
+            latents - self.latent_mean
+        ) / self.latent_std
+
+        normalized = torch.clamp(
+            normalized,
+            min=-self.latent_clip,
+            max=self.latent_clip,
+        )
+
+        return (
+            self.latent_mean
+            + normalized * self.latent_std
+        )
 
     def generate_candidate_latents(
         self,
@@ -130,6 +221,15 @@ class SessionSimulator:
                 current_tensor
                 + direction
                 + noise * torch.sqrt(variance)
+            )
+
+            # Phase 6 safety:
+            # prevent repeated exploration from drifting
+            # far outside the empirical DiffAE latent manifold.
+            candidate_latents = (
+                self.clamp_latents_to_empirical_distribution(
+                    candidate_latents
+                )
             )
 
         return candidate_latents.cpu().numpy().astype(

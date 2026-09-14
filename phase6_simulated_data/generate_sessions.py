@@ -145,6 +145,8 @@ def build_candidate_generator(
 def build_simulator(
     device: str,
     starter_latents: np.ndarray,
+    latent_mean: np.ndarray,
+    latent_std: np.ndarray,
     num_candidates: int,
 ) -> SessionSimulator:
     """Create the untrained Phase 4 + Phase 5 navigation stack."""
@@ -159,8 +161,11 @@ def build_simulator(
         projector=projector,
         sampler=sampler,
         starter_latents=starter_latents,
+        latent_mean=latent_mean,
+        latent_std=latent_std,
         device=device,
         num_candidates=num_candidates,
+        latent_clip=3.0,
     )
 
 
@@ -298,10 +303,30 @@ def main() -> None:
 
     conds = latent_data["conds"].float()
 
+    conds_mean = latent_data["conds_mean"].float()
+    conds_std = latent_data["conds_std"].float()
+
     if conds.ndim != 2 or conds.shape[1] != LATENT_DIM:
         raise ValueError(
             f"Expected latent pool shape (N, {LATENT_DIM}), "
             f"got {tuple(conds.shape)}"
+        )
+
+    if conds_mean.shape != (LATENT_DIM,):
+        raise ValueError(
+            f"Expected conds_mean shape ({LATENT_DIM},), "
+            f"got {tuple(conds_mean.shape)}"
+        )
+
+    if conds_std.shape != (LATENT_DIM,):
+        raise ValueError(
+            f"Expected conds_std shape ({LATENT_DIM},), "
+            f"got {tuple(conds_std.shape)}"
+        )
+
+    if torch.any(conds_std <= 0):
+        raise ValueError(
+            "conds_std must contain only positive values."
         )
 
     print("Latent pool:", tuple(conds.shape))
@@ -353,6 +378,8 @@ def main() -> None:
     simulator = build_simulator(
         device=device,
         starter_latents=starter_latents,
+        latent_mean=conds_mean.numpy(),
+        latent_std=conds_std.numpy(),
         num_candidates=args.candidates,
     )
 
