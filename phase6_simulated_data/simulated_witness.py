@@ -49,6 +49,11 @@ def compute_face_encoding(
         raise TypeError(
             "image must be a NumPy array"
         )
+    
+    image = np.ascontiguousarray(
+        image,
+        dtype=np.uint8,
+    )
 
     locations = face_recognition.face_locations(image)
 
