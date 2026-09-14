@@ -227,10 +227,15 @@ class SessionSimulator:
             candidate_latents
         )
 
-        candidate_encodings = [
-            compute_face_encoding(image)
-            for image in candidate_images
-        ]
+        candidate_encodings: list[np.ndarray | None] = []
+
+        for image in candidate_images:
+            try:
+                encoding = compute_face_encoding(image)
+            except ValueError:
+                encoding = None
+
+            candidate_encodings.append(encoding)
 
         (
             selected_index,

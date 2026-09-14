@@ -127,25 +127,14 @@ def compute_similarity(
 
 def select_best_candidate(
     target_encoding: np.ndarray,
-    candidate_encodings: list[np.ndarray],
+    candidate_encodings: list[np.ndarray | None],
 ) -> tuple[int, list[float]]:
     """
-    Simulate a witness selecting the candidate most similar
-    to the target.
+    Simulate a witness selecting the valid candidate
+    most similar to the target.
 
-    Args:
-        target_encoding:
-            128-dimensional target face encoding.
-
-        candidate_encodings:
-            List of candidate face encodings.
-
-    Returns:
-        selected_index:
-            Index of the candidate with highest similarity.
-
-        similarity_scores:
-            Similarity score for every candidate.
+    Invalid candidates are represented by None and receive
+    a similarity score of 0.0 so they cannot be selected.
     """
 
     if len(candidate_encodings) == 0:
@@ -153,36 +142,56 @@ def select_best_candidate(
             "At least one candidate encoding is required"
         )
 
-    similarity_scores = [
-        compute_similarity(
+    similarity_scores: list[float] = []
+    valid_indices: list[int] = []
+
+    for index, candidate_encoding in enumerate(
+        candidate_encodings
+    ):
+        if candidate_encoding is None:
+            similarity_scores.append(0.0)
+            continue
+
+        similarity = compute_similarity(
             target_encoding,
             candidate_encoding,
         )
-        for candidate_encoding in candidate_encodings
-    ]
 
-    selected_index = int(
-        np.argmax(similarity_scores)
+        similarity_scores.append(similarity)
+        valid_indices.append(index)
+
+    if len(valid_indices) == 0:
+        raise ValueError(
+            "No valid face candidates were available"
+        )
+
+    # Choose only from valid candidates.
+    best_valid_index = max(
+        valid_indices,
+        key=lambda index: similarity_scores[index],
     )
 
-    return selected_index, similarity_scores
+    return (
+        int(best_valid_index),
+        similarity_scores,
+    )
+
 
 def select_best_candidate_with_confidence(
     target_encoding: np.ndarray,
-    candidate_encodings: list[np.ndarray],
+    candidate_encodings: list[np.ndarray | None],
 ) -> tuple[int, list[float], float]:
     """
-    Simulate witness selection and derive a confidence value.
+    Simulate witness selection and derive confidence.
 
-    The candidate with the highest face-recognition similarity
-    is selected.
-
-    Confidence is the selected candidate's similarity score.
+    Invalid candidates are ignored for selection.
     """
 
-    selected_index, similarity_scores = select_best_candidate(
-        target_encoding,
-        candidate_encodings,
+    selected_index, similarity_scores = (
+        select_best_candidate(
+            target_encoding,
+            candidate_encodings,
+        )
     )
 
     confidence = float(
