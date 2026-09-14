@@ -7,11 +7,32 @@ import torch
 # Official DiffAE repository
 # ============================================================
 
-DIFFAE_REPO = Path("/content/diffae")
+# ============================================================
+# Official DiffAE repository
+# ============================================================
 
-if not DIFFAE_REPO.exists():
+POSSIBLE_DIFFAE_REPOS = [
+    Path("/content/diffae"),             # Google Colab
+    Path("/kaggle/working/diffae"),      # Kaggle
+]
+
+DIFFAE_REPO = next(
+    (
+        path
+        for path in POSSIBLE_DIFFAE_REPOS
+        if path.exists()
+    ),
+    None,
+)
+
+if DIFFAE_REPO is None:
     raise FileNotFoundError(
-        f"Official DiffAE repository not found: {DIFFAE_REPO}"
+        "Official DiffAE repository not found. "
+        "Checked:\n"
+        + "\n".join(
+            str(path)
+            for path in POSSIBLE_DIFFAE_REPOS
+        )
     )
 
 if str(DIFFAE_REPO) not in sys.path:
