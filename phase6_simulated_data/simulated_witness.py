@@ -61,6 +61,7 @@ def compute_face_encoding(
     encodings = face_recognition.face_encodings(
         image,
         known_face_locations=[locations[0]],
+        num_jitters=0,
     )
 
     if len(encodings) == 0:
