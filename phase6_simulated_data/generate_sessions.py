@@ -348,6 +348,8 @@ def main() -> None:
     # Build projector + sampler once
     # --------------------------------------------------------
 
+    set_session_seed(RANDOM_SEED)
+    
     simulator = build_simulator(
         device=device,
         starter_latents=starter_latents,
