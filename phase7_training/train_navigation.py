@@ -156,29 +156,29 @@ def compute_navigation_loss(
         "current_latent"
     ].float().to(DEVICE)
 
-    target_direction = batch[
-        "target_direction"
-    ].float().to(DEVICE)
-
     candidate_latents = batch[
         "candidate_latents"
     ].float().to(DEVICE)
+
+    similarity_scores = batch[
+        "similarity_scores"
+    ].float().to(DEVICE)
+
+    selected_index = batch[
+        "selected_index"
+    ].long().to(DEVICE)
 
     round_number = batch[
         "round_number"
     ].float().to(DEVICE).unsqueeze(1)
 
     # --------------------------------------------------------
-    # Projector prediction
+    # Projector + Sampler
     # --------------------------------------------------------
 
     predicted_direction = projector(
         current_latent
     )
-
-    # --------------------------------------------------------
-    # Sampler prediction
-    # --------------------------------------------------------
 
     predicted_variance = sampler(
         current_latent,
@@ -192,16 +192,7 @@ def compute_navigation_loss(
     )
 
     # --------------------------------------------------------
-    # 1. Selected-candidate direction loss
-    # --------------------------------------------------------
-
-    direction_loss = F.mse_loss(
-        predicted_direction,
-        target_direction,
-    )
-
-    # --------------------------------------------------------
-    # 2. Candidate-distribution negative log likelihood
+    # Candidate movements
     # --------------------------------------------------------
 
     observed_deltas = (
@@ -209,11 +200,70 @@ def compute_navigation_loss(
         - current_latent.unsqueeze(1)
     )
 
+    # The candidate selected by the simulated witness.
+    batch_indices = torch.arange(
+        current_latent.shape[0],
+        device=DEVICE,
+    )
+
+    selected_delta = observed_deltas[
+        batch_indices,
+        selected_index,
+    ]
+
+    # --------------------------------------------------------
+    # 1. Selected-candidate direction loss
+    # --------------------------------------------------------
+
+    direction_loss = F.mse_loss(
+        predicted_direction,
+        selected_delta,
+    )
+
+    # --------------------------------------------------------
+    # 2. Similarity-weighted direction target
+    # --------------------------------------------------------
+    #
+    # Candidates with higher witness similarity receive
+    # greater weight.
+    #
+    # Invalid candidates have similarity == 0 and are ignored.
+    # --------------------------------------------------------
+
+    valid_mask = similarity_scores > 0
+
+    masked_scores = similarity_scores.masked_fill(
+        ~valid_mask,
+        -1e9,
+    )
+
+    preference_temperature = 0.10
+
+    preference_weights = torch.softmax(
+        masked_scores / preference_temperature,
+        dim=1,
+    )
+
+    # Weighted average of observed candidate movements.
+    weighted_direction = (
+        observed_deltas
+        * preference_weights.unsqueeze(-1)
+    ).sum(dim=1)
+
+    preference_direction_loss = F.mse_loss(
+        predicted_direction,
+        weighted_direction,
+    )
+
+    # --------------------------------------------------------
+    # 3. Similarity-weighted Gaussian NLL
+    # --------------------------------------------------------
+
     mean = predicted_direction.unsqueeze(1)
 
     variance = predicted_variance.unsqueeze(1)
 
-    nll = 0.5 * (
+    per_candidate_nll = 0.5 * (
         torch.log(variance)
         + (
             (observed_deltas - mean) ** 2
@@ -221,25 +271,44 @@ def compute_navigation_loss(
         )
     )
 
-    nll_loss = nll.mean()
+    # Average NLL over latent dimensions first.
+    per_candidate_nll = per_candidate_nll.mean(
+        dim=2
+    )
+
+    # Give higher-similarity candidates more influence.
+    weighted_nll = (
+        per_candidate_nll
+        * preference_weights
+    ).sum(dim=1).mean()
 
     # --------------------------------------------------------
-    # Combined loss
+    # 4. Combined loss
     # --------------------------------------------------------
 
     total_loss = (
-        DIRECTION_LOSS_WEIGHT * direction_loss
-        + NLL_LOSS_WEIGHT * nll_loss
+        1.0 * direction_loss
+        + 0.5 * preference_direction_loss
+        + 1.0 * weighted_nll
     )
 
     metrics = {
-        "total_loss": float(total_loss.detach().item()),
+        "total_loss": float(
+            total_loss.detach().item()
+        ),
+
         "direction_loss": float(
             direction_loss.detach().item()
         ),
-        "nll_loss": float(
-            nll_loss.detach().item()
+
+        "preference_direction_loss": float(
+            preference_direction_loss.detach().item()
         ),
+
+        "nll_loss": float(
+            weighted_nll.detach().item()
+        ),
+
         "mean_variance": float(
             predicted_variance.detach().mean().item()
         ),
@@ -265,6 +334,7 @@ def train_one_epoch(
     totals = {
         "total_loss": 0.0,
         "direction_loss": 0.0,
+        "preference_direction_loss": 0.0,
         "nll_loss": 0.0,
         "mean_variance": 0.0,
     }
@@ -326,6 +396,7 @@ def validate(
     totals = {
         "total_loss": 0.0,
         "direction_loss": 0.0,
+        "preference_direction_loss": 0.0,
         "nll_loss": 0.0,
         "mean_variance": 0.0,
     }
@@ -490,6 +561,7 @@ def main():
             "Train:"
             f" total={train_metrics['total_loss']:.6f},"
             f" direction={train_metrics['direction_loss']:.6f},"
+            f" preference={train_metrics['preference_direction_loss']:.6f},"
             f" nll={train_metrics['nll_loss']:.6f}"
         )
 
@@ -497,6 +569,7 @@ def main():
             "Validation:"
             f" total={val_metrics['total_loss']:.6f},"
             f" direction={val_metrics['direction_loss']:.6f},"
+            f" preference={val_metrics['preference_direction_loss']:.6f},"
             f" nll={val_metrics['nll_loss']:.6f}"
         )
 
