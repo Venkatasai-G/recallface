@@ -33,7 +33,7 @@ CHECKPOINT_DIR = Path(
 BATCH_SIZE = 32
 
 # We will initially test with 1 epoch.
-EPOCHS = 1
+EPOCHS = 10
 
 LEARNING_RATE = 1e-4
 
