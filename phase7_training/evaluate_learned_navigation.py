@@ -473,8 +473,19 @@ def main() -> None:
             weights_only=False,
         )
 
+        if not isinstance(session_data, dict):
+            raise ValueError(
+                f"{session_path.name}: expected a dictionary, "
+                f"got {type(session_data)}"
+            )
+
+        if "target_latent" not in session_data:
+            raise KeyError(
+                f"{session_path.name}: missing 'target_latent'"
+            )
+
         target_latent = np.asarray(
-            session_data.target_latent,
+            session_data["target_latent"],
             dtype=np.float32,
         )
 
