@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+# ============================================================
+# Project root
+# ============================================================
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 
 from phase4_projector import DirectionProjector
 from phase5_sampler import ExplorationSampler
@@ -12,13 +24,17 @@ from phase5_sampler import ExplorationSampler
 from phase6_simulated_data.diffae_candidate_generator import (
     DiffAECandidateGenerator,
 )
-from phase6_simulated_data.session_data import SimulatedSession
-from phase6_simulated_data.session_simulator import SessionSimulator
+
+from phase6_simulated_data.session_data import (
+    SimulatedSession,
+)
+
+from phase6_simulated_data.session_simulator import (
+    SessionSimulator,
+)
+
 from phase6_simulated_data.simulated_witness import (
     compute_face_encoding,
-)
-from phase7_training.train_navigation import (
-    build_session_split,
 )
 
 
@@ -32,48 +48,104 @@ DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
+
+# ------------------------------------------------------------
+# Data
+# ------------------------------------------------------------
+
 DATASET_DIR = Path(
     "/kaggle/working/recallface/data/simulated_sessions/pilot_503"
 )
 
-CHECKPOINT_DIR = Path(
+
+# ------------------------------------------------------------
+# Checkpoints
+# ------------------------------------------------------------
+
+ORIGINAL_CHECKPOINT_DIR = Path(
     "/kaggle/working/recallface/checkpoints/FINAL_TRAINING"
 )
+
+RANKING_CHECKPOINT_DIR = Path(
+    "/kaggle/working/recallface/checkpoints/PHASE7_RANKING_OBJECTIVE"
+)
+
+
+ORIGINAL_PROJECTOR_CHECKPOINT = (
+    ORIGINAL_CHECKPOINT_DIR
+    / "projector_best.pt"
+)
+
+ORIGINAL_SAMPLER_CHECKPOINT = (
+    ORIGINAL_CHECKPOINT_DIR
+    / "sampler_best.pt"
+)
+
+
+RANKING_PROJECTOR_CHECKPOINT = (
+    RANKING_CHECKPOINT_DIR
+    / "projector_best.pt"
+)
+
+RANKING_SAMPLER_CHECKPOINT = (
+    RANKING_CHECKPOINT_DIR
+    / "sampler_best.pt"
+)
+
+
+# ------------------------------------------------------------
+# Output
+# ------------------------------------------------------------
 
 OUTPUT_DIR = Path(
     "/kaggle/working/recallface/evaluation"
 )
 
+
+OUTPUT_PATH = (
+    OUTPUT_DIR
+    / "phase7_baseline_original_ranking_10_targets.pt"
+)
+
+
+# ------------------------------------------------------------
+# Evaluation configuration
+# ------------------------------------------------------------
+
 NUM_TARGETS = 10
 NUM_ROUNDS = 20
 NUM_CANDIDATES = 12
+
+
+# ------------------------------------------------------------
+# DiffAE
+# ------------------------------------------------------------
 
 DIFFAE_CHECKPOINT = Path(
     "/kaggle/working/recallface/"
     "pretrained/diffae/checkpoints/last.ckpt"
 )
 
+
 LATENT_FILE = Path(
     "/kaggle/working/recallface/"
     "pretrained/diffae/checkpoints/latent.pkl"
 )
+
+
+# ------------------------------------------------------------
+# Starter set
+# ------------------------------------------------------------
 
 STARTER_LATENTS_FILE = Path(
     "/kaggle/working/recallface/"
     "data/starter_set/starter_latents.pt"
 )
 
+
 STARTER_XT_FILE = Path(
     "/kaggle/working/recallface/"
     "data/starter_set/starter_xT.pt"
-)
-
-PROJECTOR_CHECKPOINT = (
-    CHECKPOINT_DIR / "projector_best.pt"
-)
-
-SAMPLER_CHECKPOINT = (
-    CHECKPOINT_DIR / "sampler_best.pt"
 )
 
 
@@ -82,6 +154,7 @@ SAMPLER_CHECKPOINT = (
 # ============================================================
 
 def set_seed(seed: int) -> None:
+
     random.seed(seed)
 
     np.random.seed(seed)
@@ -89,7 +162,62 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
+
         torch.cuda.manual_seed_all(seed)
+
+
+# ============================================================
+# Exact Phase 7 session split
+# ============================================================
+
+def build_session_split():
+
+    files = sorted(
+        DATASET_DIR.glob("session_*.pt")
+    )
+
+    if len(files) != 503:
+
+        raise ValueError(
+            f"Expected 503 session files, "
+            f"found {len(files)}"
+        )
+
+    rng = random.Random(SEED)
+
+    shuffled = files.copy()
+
+    rng.shuffle(shuffled)
+
+    split_index = int(
+        len(shuffled) * 0.80
+    )
+
+    train_files = sorted(
+        shuffled[:split_index],
+        key=lambda p: p.name,
+    )
+
+    val_files = sorted(
+        shuffled[split_index:],
+        key=lambda p: p.name,
+    )
+
+    train_ids = {
+        p.name for p in train_files
+    }
+
+    val_ids = {
+        p.name for p in val_files
+    }
+
+    if train_ids & val_ids:
+
+        raise RuntimeError(
+            "Train/validation session overlap detected."
+        )
+
+    return train_files, val_files
 
 
 # ============================================================
@@ -97,18 +225,32 @@ def set_seed(seed: int) -> None:
 # ============================================================
 
 def check_required_files() -> None:
+
     required = [
+
         DATASET_DIR,
+
         DIFFAE_CHECKPOINT,
+
         LATENT_FILE,
+
         STARTER_LATENTS_FILE,
+
         STARTER_XT_FILE,
-        PROJECTOR_CHECKPOINT,
-        SAMPLER_CHECKPOINT,
+
+        ORIGINAL_PROJECTOR_CHECKPOINT,
+
+        ORIGINAL_SAMPLER_CHECKPOINT,
+
+        RANKING_PROJECTOR_CHECKPOINT,
+
+        RANKING_SAMPLER_CHECKPOINT,
     ]
 
     for path in required:
+
         if not path.exists():
+
             raise FileNotFoundError(
                 f"Required path does not exist:\n{path}"
             )
@@ -118,16 +260,22 @@ def check_required_files() -> None:
 # Load latent statistics
 # ============================================================
 
-def load_latent_statistics() -> tuple[np.ndarray, np.ndarray]:
+def load_latent_statistics():
+
     latent_data = torch.load(
         LATENT_FILE,
         map_location="cpu",
         weights_only=False,
     )
 
-    if not isinstance(latent_data, dict):
+    if not isinstance(
+        latent_data,
+        dict,
+    ):
+
         raise ValueError(
-            "Expected latent.pkl to contain a dictionary."
+            "Expected latent.pkl to contain "
+            "a dictionary."
         )
 
     latent_mean = np.asarray(
@@ -141,76 +289,155 @@ def load_latent_statistics() -> tuple[np.ndarray, np.ndarray]:
     )
 
     if latent_mean.shape != (512,):
+
         raise ValueError(
             "Expected conds_mean shape (512,), "
             f"got {latent_mean.shape}"
         )
 
     if latent_std.shape != (512,):
+
         raise ValueError(
             "Expected conds_std shape (512,), "
             f"got {latent_std.shape}"
         )
 
     if np.any(latent_std <= 0):
+
         raise ValueError(
-            "latent_std must contain positive values."
+            "latent_std must contain "
+            "positive values."
         )
 
     return latent_mean, latent_std
 
 
 # ============================================================
-# Load models
+# Load a navigation system
 # ============================================================
 
-def load_navigation_models(
-    learned: bool,
-) -> tuple[
-    DirectionProjector,
-    ExplorationSampler,
-]:
-    projector = DirectionProjector().to(DEVICE)
-    sampler = ExplorationSampler().to(DEVICE)
+def load_navigation_system(
+    system_name: str,
+):
 
-    if learned:
+    projector = (
+        DirectionProjector()
+        .to(DEVICE)
+    )
+
+    sampler = (
+        ExplorationSampler()
+        .to(DEVICE)
+    )
+
+
+    # --------------------------------------------------------
+    # BASELINE
+    # --------------------------------------------------------
+
+    if system_name == "baseline":
+
+        print(
+            "  Using clean bootstrap "
+            "Projector + Sampler."
+        )
+
+
+    # --------------------------------------------------------
+    # ORIGINAL
+    # --------------------------------------------------------
+
+    elif system_name == "original":
+
         projector_data = torch.load(
-            PROJECTOR_CHECKPOINT,
+            ORIGINAL_PROJECTOR_CHECKPOINT,
             map_location=DEVICE,
             weights_only=False,
         )
 
         sampler_data = torch.load(
-            SAMPLER_CHECKPOINT,
+            ORIGINAL_SAMPLER_CHECKPOINT,
             map_location=DEVICE,
             weights_only=False,
         )
 
         projector.load_state_dict(
-            projector_data["model_state_dict"]
+            projector_data[
+                "model_state_dict"
+            ]
         )
 
         sampler.load_state_dict(
-            sampler_data["model_state_dict"]
+            sampler_data[
+                "model_state_dict"
+            ]
         )
 
         print(
-            "Loaded learned Projector checkpoint "
-            f"(epoch {projector_data['epoch']})."
+            "  Loaded ORIGINAL "
+            f"Projector epoch "
+            f"{projector_data['epoch']}."
         )
 
         print(
-            "Loaded learned Sampler checkpoint "
-            f"(epoch {sampler_data['epoch']})."
+            "  Loaded ORIGINAL "
+            f"Sampler epoch "
+            f"{sampler_data['epoch']}."
         )
+
+
+    # --------------------------------------------------------
+    # RANKING-AWARE
+    # --------------------------------------------------------
+
+    elif system_name == "ranking":
+
+        projector_data = torch.load(
+            RANKING_PROJECTOR_CHECKPOINT,
+            map_location=DEVICE,
+            weights_only=False,
+        )
+
+        sampler_data = torch.load(
+            RANKING_SAMPLER_CHECKPOINT,
+            map_location=DEVICE,
+            weights_only=False,
+        )
+
+        projector.load_state_dict(
+            projector_data[
+                "model_state_dict"
+            ]
+        )
+
+        sampler.load_state_dict(
+            sampler_data[
+                "model_state_dict"
+            ]
+        )
+
+        print(
+            "  Loaded RANKING-AWARE "
+            f"Projector epoch "
+            f"{projector_data['epoch']}."
+        )
+
+        print(
+            "  Loaded RANKING-AWARE "
+            f"Sampler epoch "
+            f"{sampler_data['epoch']}."
+        )
+
 
     else:
-        print(
-            "Using clean bootstrap "
-            "Projector + Sampler."
+
+        raise ValueError(
+            f"Unknown system: {system_name}"
         )
 
+
     projector.eval()
+
     sampler.eval()
 
     return projector, sampler
@@ -221,10 +448,20 @@ def load_navigation_models(
 # ============================================================
 
 def build_candidate_generator():
+
     generator = DiffAECandidateGenerator(
-        checkpoint_path=str(DIFFAE_CHECKPOINT),
-        xT_path=str(STARTER_XT_FILE),
-        device=str(DEVICE),
+
+        checkpoint_path=str(
+            DIFFAE_CHECKPOINT
+        ),
+
+        xT_path=str(
+            STARTER_XT_FILE
+        ),
+
+        device=str(
+            DEVICE
+        ),
     )
 
     generator.load()
@@ -237,58 +474,102 @@ def build_candidate_generator():
 # ============================================================
 
 def run_single_system(
+    system_name: str,
     target_latent: np.ndarray,
     target_encoding: np.ndarray,
     starter_latents: np.ndarray,
     latent_mean: np.ndarray,
     latent_std: np.ndarray,
     candidate_generator,
-    learned: bool,
     seed: int,
     session_id: int,
 ) -> dict:
 
-    # Reset RNG before every matched run.
-    # Therefore baseline and learned receive the
-    # same stochastic exploration sequence.
+    # --------------------------------------------------------
+    # Reset RNG for matched comparison
+    # --------------------------------------------------------
+
     set_seed(seed)
 
-    projector, sampler = load_navigation_models(
-        learned=learned
+
+    # --------------------------------------------------------
+    # Load selected system
+    # --------------------------------------------------------
+
+    projector, sampler = (
+        load_navigation_system(
+            system_name
+        )
     )
 
+
+    # --------------------------------------------------------
+    # Build simulator
+    # --------------------------------------------------------
+
     simulator = SessionSimulator(
+
         projector=projector,
+
         sampler=sampler,
+
         starter_latents=starter_latents,
+
         latent_mean=latent_mean,
+
         latent_std=latent_std,
-        device=str(DEVICE),
+
+        device=str(
+            DEVICE
+        ),
+
         num_candidates=NUM_CANDIDATES,
+
         latent_clip=3.0,
     )
 
+
+    # --------------------------------------------------------
+    # Session object
+    # --------------------------------------------------------
+
     session = SimulatedSession(
+
         session_id=session_id,
+
         target_latent=target_latent.tolist(),
     )
 
+
     current_latent = None
 
+
     round_best_similarity = []
+
     round_validity = []
+
     round_confidence = []
+
+
+    # ========================================================
+    # Generate 20 rounds
+    # ========================================================
 
     for round_number in range(
         1,
         NUM_ROUNDS + 1,
     ):
 
-        current_latent_input = (
-            None
-            if round_number == 1
-            else current_latent
-        )
+        if round_number == 1:
+
+            current_latent_input = None
+
+        else:
+
+            current_latent_input = (
+                current_latent
+            )
+
 
         (
             next_latent,
@@ -296,84 +577,169 @@ def run_single_system(
             confidence,
             similarity_scores,
         ) = simulator.run_round(
+
             session=session,
+
             round_number=round_number,
+
             current_latent=current_latent_input,
-            candidate_image_generator=candidate_generator.generate,
+
+            candidate_image_generator=(
+                candidate_generator.generate
+            ),
+
             target_encoding=target_encoding,
         )
+
 
         scores = np.asarray(
             similarity_scores,
             dtype=np.float32,
         )
 
-        valid_mask = scores > 0
+
+        valid_mask = (
+            scores > 0
+        )
+
 
         valid_count = int(
             valid_mask.sum()
         )
 
+
         if valid_count == 0:
+
             raise RuntimeError(
+
                 f"No valid candidates in "
+                f"{system_name}, "
                 f"session {session_id}, "
                 f"round {round_number}."
             )
 
-        round_best_similarity.append(
-            float(scores[valid_mask].max())
-        )
 
-        round_validity.append(
+        round_best_similarity.append(
+
             float(
-                valid_count / len(scores)
+                scores[
+                    valid_mask
+                ].max()
             )
         )
 
-        round_confidence.append(
-            float(confidence)
+
+        round_validity.append(
+
+            float(
+                valid_count
+                / len(scores)
+            )
         )
+
+
+        round_confidence.append(
+
+            float(
+                confidence
+            )
+        )
+
 
         current_latent = next_latent
 
+
+    # ========================================================
+    # Return
+    # ========================================================
+
     return {
+
+        "system": system_name,
+
         "session_id": session_id,
-        "learned": learned,
-        "round_best_similarity": (
-            round_best_similarity
-        ),
-        "round_validity": round_validity,
-        "round_confidence": round_confidence,
+
+        "round_best_similarity":
+            round_best_similarity,
+
+        "round_validity":
+            round_validity,
+
+        "round_confidence":
+            round_confidence,
     }
 
 
 # ============================================================
-# Main evaluation
+# Main
 # ============================================================
 
 def main() -> None:
 
     set_seed(SEED)
 
+
     print(
-        "========== PHASE 7 END-TO-END EVALUATION =========="
+        "=================================================="
     )
 
-    print("Device:", DEVICE)
+    print(
+        "PHASE 7 THREE-WAY END-TO-END EVALUATION"
+    )
+
+    print(
+        "=================================================="
+    )
+
+
+    print(
+        "\nDevice:",
+        DEVICE,
+    )
+
 
     if DEVICE.type == "cuda":
+
         print(
             "GPU:",
             torch.cuda.get_device_name(0)
         )
 
+
+    # --------------------------------------------------------
+    # Required files
+    # --------------------------------------------------------
+
+    print(
+        "\nChecking required files..."
+    )
+
     check_required_files()
 
-    print("\nLoading latent statistics...")
+    print(
+        "All required files found."
+    )
+
+
+    # --------------------------------------------------------
+    # Load latent statistics
+    # --------------------------------------------------------
+
+    print(
+        "\nLoading latent statistics..."
+    )
 
     latent_mean, latent_std = (
         load_latent_statistics()
+    )
+
+
+    # --------------------------------------------------------
+    # Starter latents
+    # --------------------------------------------------------
+
+    print(
+        "Loading starter latents..."
     )
 
     starter_latents = torch.load(
@@ -382,24 +748,39 @@ def main() -> None:
         weights_only=False,
     )
 
+
     starter_latents = (
-        starter_latents.detach()
+
+        starter_latents
+
+        .detach()
+
         .cpu()
+
         .numpy()
-        .astype(np.float32)
+
+        .astype(
+            np.float32
+        )
     )
+
 
     if starter_latents.shape != (
         NUM_CANDIDATES,
         512,
     ):
+
         raise ValueError(
-            "Unexpected starter_latents shape: "
+
+            "Unexpected starter_latents "
+            "shape: "
+
             f"{starter_latents.shape}"
         )
 
+
     # --------------------------------------------------------
-    # Reproduce the EXACT Phase 7 validation split
+    # Exact Phase 7 validation split
     # --------------------------------------------------------
 
     print(
@@ -407,157 +788,344 @@ def main() -> None:
         "train/validation split..."
     )
 
+
     train_files, val_files = (
         build_session_split()
     )
 
+
     print(
         "Training sessions:",
-        len(train_files)
+        len(train_files),
     )
+
 
     print(
         "Validation sessions:",
-        len(val_files)
+        len(val_files),
     )
 
+
     if len(train_files) != 402:
+
         raise RuntimeError(
-            f"Expected 402 training sessions, "
-            f"got {len(train_files)}"
+            "Expected 402 training sessions."
         )
+
 
     if len(val_files) != 101:
+
         raise RuntimeError(
-            f"Expected 101 validation sessions, "
-            f"got {len(val_files)}"
+            "Expected 101 validation sessions."
         )
 
-    # Same deterministic ordering used after
-    # the shuffled split.
-    evaluation_files = val_files[
-        :NUM_TARGETS
-    ]
 
-    print("\nEvaluation targets:")
+    evaluation_files = (
+        val_files[
+            :NUM_TARGETS
+        ]
+    )
+
+
+    print(
+        "\nEvaluation targets:"
+    )
+
 
     for path in evaluation_files:
-        print(" ", path.name)
+
+        print(
+            " ",
+            path.name,
+        )
+
 
     # --------------------------------------------------------
-    # Load DiffAE
+    # Candidate generator
     # --------------------------------------------------------
 
     print(
         "\nLoading DiffAE candidate generator..."
     )
 
+
     candidate_generator = (
         build_candidate_generator()
     )
 
+
     # --------------------------------------------------------
-    # Evaluate
+    # Results container
     # --------------------------------------------------------
 
     results = []
 
+
+    # ========================================================
+    # Evaluate target sessions
+    # ========================================================
+
     for target_number, session_path in enumerate(
+
         evaluation_files,
+
         start=1,
     ):
 
+
         session_data = torch.load(
+
             session_path,
+
             map_location="cpu",
+
             weights_only=False,
         )
 
-        if not isinstance(session_data, dict):
+
+        if not isinstance(
+            session_data,
+            dict,
+        ):
+
             raise ValueError(
-                f"{session_path.name}: expected a dictionary, "
+
+                f"{session_path.name}: "
+                f"expected dictionary, "
+
                 f"got {type(session_data)}"
             )
 
-        if "target_latent" not in session_data:
+
+        if (
+            "target_latent"
+            not in session_data
+        ):
+
             raise KeyError(
-                f"{session_path.name}: missing 'target_latent'"
+
+                f"{session_path.name}: "
+                "missing target_latent"
             )
 
+
         target_latent = np.asarray(
-            session_data["target_latent"],
+
+            session_data[
+                "target_latent"
+            ],
+
             dtype=np.float32,
         )
 
-        if target_latent.shape != (512,):
+
+        if target_latent.shape != (
+            512,
+        ):
+
             raise ValueError(
+
                 f"{session_path.name}: "
-                f"target latent has shape "
+                "target latent has shape "
+
                 f"{target_latent.shape}"
             )
 
-        # Render the target face using the SAME
-        # DiffAE + fixed xT path.
+
+        # ----------------------------------------------------
+        # Target rendering
+        # ----------------------------------------------------
+
         target_image = (
             candidate_generator.generate(
-                target_latent[None, :]
+                target_latent[
+                    None,
+                    :
+                ]
             )[0]
         )
 
-        target_encoding = compute_face_encoding(
-            target_image
+
+        # ----------------------------------------------------
+        # Target face encoding
+        # ----------------------------------------------------
+
+        target_encoding = (
+            compute_face_encoding(
+                target_image
+            )
         )
+
+
+        if target_encoding is None:
+
+            raise RuntimeError(
+
+                f"Could not compute target "
+                f"face encoding for "
+                f"{session_path.name}"
+            )
+
 
         session_id = int(
-            session_path.stem.split("_")[1]
+
+            session_path.stem
+            .split("_")[1]
         )
 
-        run_seed = SEED + session_id
+
+        # Matched seed for all three systems.
+        run_seed = (
+            SEED
+            + session_id
+        )
+
 
         print(
-            f"\n[{target_number}/{NUM_TARGETS}] "
+            "\n"
+            + "=" * 50
+        )
+
+
+        print(
+            f"[{target_number}/{NUM_TARGETS}] "
             f"Session {session_id}"
         )
 
-        # ----------------------------------------------------
-        # Baseline
-        # ----------------------------------------------------
 
-        baseline_result = run_single_system(
-            target_latent=target_latent,
-            target_encoding=target_encoding,
-            starter_latents=starter_latents,
-            latent_mean=latent_mean,
-            latent_std=latent_std,
-            candidate_generator=candidate_generator,
-            learned=False,
-            seed=run_seed,
-            session_id=session_id,
+        print(
+            "=" * 50
         )
 
+
         # ----------------------------------------------------
-        # Learned
+        # BASELINE
         # ----------------------------------------------------
 
-        learned_result = run_single_system(
-            target_latent=target_latent,
-            target_encoding=target_encoding,
-            starter_latents=starter_latents,
-            latent_mean=latent_mean,
-            latent_std=latent_std,
-            candidate_generator=candidate_generator,
-            learned=True,
-            seed=run_seed,
-            session_id=session_id,
+        print(
+            "\nBASELINE"
         )
 
-        results.append(
-            {
-                "session_id": session_id,
-                "baseline": baseline_result,
-                "learned": learned_result,
-            }
+
+        baseline_result = (
+            run_single_system(
+
+                system_name="baseline",
+
+                target_latent=target_latent,
+
+                target_encoding=target_encoding,
+
+                starter_latents=starter_latents,
+
+                latent_mean=latent_mean,
+
+                latent_std=latent_std,
+
+                candidate_generator=(
+                    candidate_generator
+                ),
+
+                seed=run_seed,
+
+                session_id=session_id,
+            )
         )
+
+
+        # ----------------------------------------------------
+        # ORIGINAL
+        # ----------------------------------------------------
+
+        print(
+            "\nORIGINAL LEARNED"
+        )
+
+
+        original_result = (
+            run_single_system(
+
+                system_name="original",
+
+                target_latent=target_latent,
+
+                target_encoding=target_encoding,
+
+                starter_latents=starter_latents,
+
+                latent_mean=latent_mean,
+
+                latent_std=latent_std,
+
+                candidate_generator=(
+                    candidate_generator
+                ),
+
+                seed=run_seed,
+
+                session_id=session_id,
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # RANKING-AWARE
+        # ----------------------------------------------------
+
+        print(
+            "\nRANKING-AWARE LEARNED"
+        )
+
+
+        ranking_result = (
+            run_single_system(
+
+                system_name="ranking",
+
+                target_latent=target_latent,
+
+                target_encoding=target_encoding,
+
+                starter_latents=starter_latents,
+
+                latent_mean=latent_mean,
+
+                latent_std=latent_std,
+
+                candidate_generator=(
+                    candidate_generator
+                ),
+
+                seed=run_seed,
+
+                session_id=session_id,
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # Store
+        # ----------------------------------------------------
+
+        results.append({
+
+            "session_id":
+                session_id,
+
+            "baseline":
+                baseline_result,
+
+            "original":
+                original_result,
+
+            "ranking":
+                ranking_result,
+        })
+
+
+        # ----------------------------------------------------
+        # Per-session summary
+        # ----------------------------------------------------
 
         baseline_r1 = (
             baseline_result[
@@ -571,156 +1139,450 @@ def main() -> None:
             ][-1]
         )
 
-        learned_r1 = (
-            learned_result[
+
+        original_r1 = (
+            original_result[
                 "round_best_similarity"
             ][0]
         )
 
-        learned_r20 = (
-            learned_result[
+        original_r20 = (
+            original_result[
                 "round_best_similarity"
             ][-1]
         )
 
+
+        ranking_r1 = (
+            ranking_result[
+                "round_best_similarity"
+            ][0]
+        )
+
+        ranking_r20 = (
+            ranking_result[
+                "round_best_similarity"
+            ][-1]
+        )
+
+
         print(
-            f"  Baseline: R1={baseline_r1:.4f}, "
+            "\nSession summary:"
+        )
+
+
+        print(
+
+            f"Baseline     : "
+            f"R1={baseline_r1:.4f}, "
             f"R20={baseline_r20:.4f}, "
             f"Δ={baseline_r20 - baseline_r1:+.4f}"
         )
 
+
         print(
-            f"  Learned : R1={learned_r1:.4f}, "
-            f"R20={learned_r20:.4f}, "
-            f"Δ={learned_r20 - learned_r1:+.4f}"
+
+            f"Original     : "
+            f"R1={original_r1:.4f}, "
+            f"R20={original_r20:.4f}, "
+            f"Δ={original_r20 - original_r1:+.4f}"
         )
 
-    # --------------------------------------------------------
-    # Aggregate metrics
-    # --------------------------------------------------------
+
+        print(
+
+            f"Ranking-aware: "
+            f"R1={ranking_r1:.4f}, "
+            f"R20={ranking_r20:.4f}, "
+            f"Δ={ranking_r20 - ranking_r1:+.4f}"
+        )
+
+
+    # ========================================================
+    # Helper
+    # ========================================================
 
     def collect(
         system: str,
         metric: str,
     ):
+
         return np.asarray(
+
             [
-                r[system][metric]
-                for r in results
+
+                result[
+                    system
+                ][metric]
+
+                for result in results
+
             ],
+
             dtype=np.float32,
         )
+
+
+    # --------------------------------------------------------
+    # Similarity
+    # --------------------------------------------------------
 
     baseline_similarity = collect(
         "baseline",
         "round_best_similarity",
     )
 
-    learned_similarity = collect(
-        "learned",
+
+    original_similarity = collect(
+        "original",
         "round_best_similarity",
     )
+
+
+    ranking_similarity = collect(
+        "ranking",
+        "round_best_similarity",
+    )
+
+
+    # --------------------------------------------------------
+    # Validity
+    # --------------------------------------------------------
 
     baseline_validity = collect(
         "baseline",
         "round_validity",
     )
 
-    learned_validity = collect(
-        "learned",
+
+    original_validity = collect(
+        "original",
         "round_validity",
     )
+
+
+    ranking_validity = collect(
+        "ranking",
+        "round_validity",
+    )
+
+
+    # --------------------------------------------------------
+    # Confidence
+    # --------------------------------------------------------
 
     baseline_confidence = collect(
         "baseline",
         "round_confidence",
     )
 
-    learned_confidence = collect(
-        "learned",
+
+    original_confidence = collect(
+        "original",
         "round_confidence",
     )
 
-    baseline_r1 = baseline_similarity[:, 0]
-    baseline_r20 = baseline_similarity[:, -1]
 
-    learned_r1 = learned_similarity[:, 0]
-    learned_r20 = learned_similarity[:, -1]
+    ranking_confidence = collect(
+        "ranking",
+        "round_confidence",
+    )
+
+
+    # ========================================================
+    # R1 / R20
+    # ========================================================
+
+    baseline_r1 = (
+        baseline_similarity[:, 0]
+    )
+
+    baseline_r20 = (
+        baseline_similarity[:, -1]
+    )
+
+
+    original_r1 = (
+        original_similarity[:, 0]
+    )
+
+    original_r20 = (
+        original_similarity[:, -1]
+    )
+
+
+    ranking_r1 = (
+        ranking_similarity[:, 0]
+    )
+
+    ranking_r20 = (
+        ranking_similarity[:, -1]
+    )
+
+
+    # ========================================================
+    # Improvements
+    # ========================================================
 
     baseline_improvement = (
-        baseline_r20 - baseline_r1
+        baseline_r20
+        - baseline_r1
     )
 
-    learned_improvement = (
-        learned_r20 - learned_r1
+
+    original_improvement = (
+        original_r20
+        - original_r1
     )
+
+
+    ranking_improvement = (
+        ranking_r20
+        - ranking_r1
+    )
+
+
+    # ========================================================
+    # Summary dictionary
+    # ========================================================
 
     summary = {
-        "num_targets": NUM_TARGETS,
-        "num_rounds": NUM_ROUNDS,
-        "num_candidates": NUM_CANDIDATES,
-        "seed": SEED,
 
-        "baseline_mean_r1": float(
-            baseline_r1.mean()
-        ),
+        "num_targets":
+            NUM_TARGETS,
 
-        "baseline_mean_r20": float(
-            baseline_r20.mean()
-        ),
+        "num_rounds":
+            NUM_ROUNDS,
 
-        "baseline_mean_improvement": float(
-            baseline_improvement.mean()
-        ),
+        "num_candidates":
+            NUM_CANDIDATES,
 
-        "learned_mean_r1": float(
-            learned_r1.mean()
-        ),
+        "seed":
+            SEED,
 
-        "learned_mean_r20": float(
-            learned_r20.mean()
-        ),
 
-        "learned_mean_improvement": float(
-            learned_improvement.mean()
-        ),
+        # ----------------------------------------------------
+        # Baseline
+        # ----------------------------------------------------
 
-        "baseline_candidate_validity": float(
-            baseline_validity.mean()
-        ),
+        "baseline_mean_r1":
+            float(
+                baseline_r1.mean()
+            ),
 
-        "learned_candidate_validity": float(
-            learned_validity.mean()
-        ),
+        "baseline_mean_r20":
+            float(
+                baseline_r20.mean()
+            ),
 
-        "baseline_mean_confidence_r1": float(
-            baseline_confidence[:, 0].mean()
-        ),
+        "baseline_mean_improvement":
+            float(
+                baseline_improvement.mean()
+            ),
 
-        "baseline_mean_confidence_r20": float(
-            baseline_confidence[:, -1].mean()
-        ),
+        "baseline_candidate_validity":
+            float(
+                baseline_validity.mean()
+            ),
 
-        "learned_mean_confidence_r1": float(
-            learned_confidence[:, 0].mean()
-        ),
 
-        "learned_mean_confidence_r20": float(
-            learned_confidence[:, -1].mean()
-        ),
+        "baseline_mean_confidence_r1":
+            float(
+                baseline_confidence[
+                    :, 0
+                ].mean()
+            ),
+
+        "baseline_mean_confidence_r20":
+            float(
+                baseline_confidence[
+                    :, -1
+                ].mean()
+            ),
+
+
+        # ----------------------------------------------------
+        # Original
+        # ----------------------------------------------------
+
+        "original_mean_r1":
+            float(
+                original_r1.mean()
+            ),
+
+        "original_mean_r20":
+            float(
+                original_r20.mean()
+            ),
+
+        "original_mean_improvement":
+            float(
+                original_improvement.mean()
+            ),
+
+        "original_candidate_validity":
+            float(
+                original_validity.mean()
+            ),
+
+
+        "original_mean_confidence_r1":
+            float(
+                original_confidence[
+                    :, 0
+                ].mean()
+            ),
+
+        "original_mean_confidence_r20":
+            float(
+                original_confidence[
+                    :, -1
+                ].mean()
+            ),
+
+
+        # ----------------------------------------------------
+        # Ranking-aware
+        # ----------------------------------------------------
+
+        "ranking_mean_r1":
+            float(
+                ranking_r1.mean()
+            ),
+
+        "ranking_mean_r20":
+            float(
+                ranking_r20.mean()
+            ),
+
+        "ranking_mean_improvement":
+            float(
+                ranking_improvement.mean()
+            ),
+
+        "ranking_candidate_validity":
+            float(
+                ranking_validity.mean()
+            ),
+
+
+        "ranking_mean_confidence_r1":
+            float(
+                ranking_confidence[
+                    :, 0
+                ].mean()
+            ),
+
+        "ranking_mean_confidence_r20":
+            float(
+                ranking_confidence[
+                    :, -1
+                ].mean()
+            ),
+
+
+        # ----------------------------------------------------
+        # Paired comparisons
+        # ----------------------------------------------------
+
+        "original_minus_baseline_r20":
+            float(
+                (
+                    original_r20
+                    - baseline_r20
+                ).mean()
+            ),
+
+        "ranking_minus_baseline_r20":
+            float(
+                (
+                    ranking_r20
+                    - baseline_r20
+                ).mean()
+            ),
+
+        "ranking_minus_original_r20":
+            float(
+                (
+                    ranking_r20
+                    - original_r20
+                ).mean()
+            ),
+
+
+        "original_minus_baseline_improvement":
+            float(
+                (
+                    original_improvement
+                    - baseline_improvement
+                ).mean()
+            ),
+
+        "ranking_minus_baseline_improvement":
+            float(
+                (
+                    ranking_improvement
+                    - baseline_improvement
+                ).mean()
+            ),
+
+        "ranking_minus_original_improvement":
+            float(
+                (
+                    ranking_improvement
+                    - original_improvement
+                ).mean()
+            ),
+
+
+        "ranking_r20_higher_than_original_count":
+            int(
+                np.sum(
+                    ranking_r20
+                    > original_r20
+                )
+            ),
+
+        "ranking_r20_lower_than_original_count":
+            int(
+                np.sum(
+                    ranking_r20
+                    < original_r20
+                )
+            ),
+
+        "ranking_r20_equal_original_count":
+            int(
+                np.sum(
+                    ranking_r20
+                    == original_r20
+                )
+            ),
     }
 
-    # --------------------------------------------------------
-    # Print final summary
-    # --------------------------------------------------------
+
+    # ========================================================
+    # Print final results
+    # ========================================================
 
     print(
-        "\n========== EVALUATION SUMMARY =========="
+        "\n\n"
+        "=================================================="
     )
 
     print(
-        "\nBaseline:"
+        "THREE-WAY EVALUATION SUMMARY"
     )
+
+    print(
+        "=================================================="
+    )
+
+
+    print(
+        "\nBASELINE"
+    )
+
 
     print(
         f"Mean R1 similarity  : "
@@ -742,33 +1604,147 @@ def main() -> None:
         f"{summary['baseline_candidate_validity']:.6f}"
     )
 
+
     print(
-        "\nLearned:"
+        "\nORIGINAL LEARNED"
     )
+
 
     print(
         f"Mean R1 similarity  : "
-        f"{summary['learned_mean_r1']:.6f}"
+        f"{summary['original_mean_r1']:.6f}"
     )
 
     print(
         f"Mean R20 similarity : "
-        f"{summary['learned_mean_r20']:.6f}"
+        f"{summary['original_mean_r20']:.6f}"
     )
 
     print(
         f"Mean improvement    : "
-        f"{summary['learned_mean_improvement']:+.6f}"
+        f"{summary['original_mean_improvement']:+.6f}"
     )
 
     print(
         f"Candidate validity  : "
-        f"{summary['learned_candidate_validity']:.6f}"
+        f"{summary['original_candidate_validity']:.6f}"
+    )
+
+
+    print(
+        "\nRANKING-AWARE LEARNED"
+    )
+
+
+    print(
+        f"Mean R1 similarity  : "
+        f"{summary['ranking_mean_r1']:.6f}"
     )
 
     print(
-        "\nConfidence:"
+        f"Mean R20 similarity : "
+        f"{summary['ranking_mean_r20']:.6f}"
     )
+
+    print(
+        f"Mean improvement    : "
+        f"{summary['ranking_mean_improvement']:+.6f}"
+    )
+
+    print(
+        f"Candidate validity  : "
+        f"{summary['ranking_candidate_validity']:.6f}"
+    )
+
+
+    # ========================================================
+    # Paired comparisons
+    # ========================================================
+
+    print(
+        "\n\nPAIRED COMPARISONS"
+    )
+
+
+    print(
+        "\nOriginal - Baseline"
+    )
+
+
+    print(
+        f"Mean R20 difference : "
+        f"{summary['original_minus_baseline_r20']:+.6f}"
+    )
+
+    print(
+        f"Improvement diff    : "
+        f"{summary['original_minus_baseline_improvement']:+.6f}"
+    )
+
+
+    print(
+        "\nRanking-aware - Baseline"
+    )
+
+
+    print(
+        f"Mean R20 difference : "
+        f"{summary['ranking_minus_baseline_r20']:+.6f}"
+    )
+
+    print(
+        f"Improvement diff    : "
+        f"{summary['ranking_minus_baseline_improvement']:+.6f}"
+    )
+
+
+    print(
+        "\nRanking-aware - Original"
+    )
+
+
+    print(
+        f"Mean R20 difference : "
+        f"{summary['ranking_minus_original_r20']:+.6f}"
+    )
+
+    print(
+        f"Improvement diff    : "
+        f"{summary['ranking_minus_original_improvement']:+.6f}"
+    )
+
+
+    print(
+        "\nRanking-aware R20:"
+    )
+
+    print(
+        f"  Higher than original: "
+        f"{summary['ranking_r20_higher_than_original_count']}/"
+        f"{NUM_TARGETS}"
+    )
+
+    print(
+        f"  Lower than original : "
+        f"{summary['ranking_r20_lower_than_original_count']}/"
+        f"{NUM_TARGETS}"
+    )
+
+    print(
+        f"  Equal to original   : "
+        f"{summary['ranking_r20_equal_original_count']}/"
+        f"{NUM_TARGETS}"
+    )
+
+
+    # ========================================================
+    # Confidence
+    # ========================================================
+
+    print(
+        "\n\nCONFIDENCE"
+    )
+
 
     print(
         f"Baseline R1  : "
@@ -780,48 +1756,115 @@ def main() -> None:
         f"{summary['baseline_mean_confidence_r20']:.6f}"
     )
 
+
     print(
-        f"Learned R1   : "
-        f"{summary['learned_mean_confidence_r1']:.6f}"
+        f"Original R1  : "
+        f"{summary['original_mean_confidence_r1']:.6f}"
     )
 
     print(
-        f"Learned R20  : "
-        f"{summary['learned_mean_confidence_r20']:.6f}"
+        f"Original R20 : "
+        f"{summary['original_mean_confidence_r20']:.6f}"
     )
 
-    # --------------------------------------------------------
-    # Save evaluation artifact
-    # --------------------------------------------------------
+
+    print(
+        f"Ranking R1   : "
+        f"{summary['ranking_mean_confidence_r1']:.6f}"
+    )
+
+    print(
+        f"Ranking R20  : "
+        f"{summary['ranking_mean_confidence_r20']:.6f}"
+    )
+
+
+    # ========================================================
+    # Save artifact
+    # ========================================================
 
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    output_path = (
-        OUTPUT_DIR
-        / "phase7_learned_vs_baseline_10_targets.pt"
-    )
 
     torch.save(
+
         {
-            "summary": summary,
-            "results": results,
+            "summary":
+                summary,
+
+            "results":
+                results,
+
+            "evaluation_config": {
+
+                "seed":
+                    SEED,
+
+                "num_targets":
+                    NUM_TARGETS,
+
+                "num_rounds":
+                    NUM_ROUNDS,
+
+                "num_candidates":
+                    NUM_CANDIDATES,
+
+                "original_projector":
+                    str(
+                        ORIGINAL_PROJECTOR_CHECKPOINT
+                    ),
+
+                "original_sampler":
+                    str(
+                        ORIGINAL_SAMPLER_CHECKPOINT
+                    ),
+
+                "ranking_projector":
+                    str(
+                        RANKING_PROJECTOR_CHECKPOINT
+                    ),
+
+                "ranking_sampler":
+                    str(
+                        RANKING_SAMPLER_CHECKPOINT
+                    ),
+            },
         },
-        output_path,
+
+        OUTPUT_PATH,
+    )
+
+
+    print(
+        "\n\nSaved evaluation results:"
     )
 
     print(
-        "\nSaved evaluation results:"
+        OUTPUT_PATH
     )
 
-    print(output_path)
 
     print(
-        "\n========== EVALUATION COMPLETE =========="
+        "\n"
+        "=================================================="
     )
 
+    print(
+        "THREE-WAY EVALUATION COMPLETE"
+    )
+
+    print(
+        "=================================================="
+    )
+
+
+# ============================================================
+# Entry point
+# ============================================================
 
 if __name__ == "__main__":
+
     main()
