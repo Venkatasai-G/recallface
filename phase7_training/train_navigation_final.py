@@ -48,6 +48,7 @@ CHECKPOINT_DIR = Path(
 BATCH_SIZE = 32
 EPOCHS = 30
 LEARNING_RATE = 1e-4
+MAX_GRAD_NORM = 1.0
 
 
 # ------------------------------------------------------------
