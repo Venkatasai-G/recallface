@@ -138,9 +138,7 @@ ORIGINAL_CHECKPOINT_DIR = Path(
 
 
 RANKING_CHECKPOINT_DIR = Path(
-
-    "/kaggle/working/recallface/checkpoints/PHASE7_RANKING_OBJECTIVE"
-
+    "/kaggle/working/recallface/checkpoints/PHASE7_FINAL"
 )
 
 
