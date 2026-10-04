@@ -1,9 +1,21 @@
-# train_navigation.py
+# train_navigation_ranking.py
 
 from __future__ import annotations
 
 import random
+import sys
 from pathlib import Path
+
+
+# ============================================================
+# Project root
+# ============================================================
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 
 import torch
 import torch.nn.functional as F
@@ -12,7 +24,6 @@ from torch.utils.data import DataLoader
 from phase4_projector import DirectionProjector
 from phase5_sampler import ExplorationSampler
 from phase7_training.dataset import NavigationTransitionDataset
-
 
 # ============================================================
 # Configuration
@@ -28,24 +39,32 @@ DATASET_DIR = Path(
     "/kaggle/working/recallface/data/simulated_sessions/pilot_503"
 )
 
+# IMPORTANT:
+# Keep the original Phase 7 checkpoints untouched.
 CHECKPOINT_DIR = Path(
-    "/kaggle/working/recallface/checkpoints/FINAL_TRAINING"
+    "/kaggle/working/recallface/checkpoints/PHASE7_FINAL"
 )
 
 BATCH_SIZE = 32
-
-# We will initially test with 1 epoch.
-EPOCHS = 10
-
+EPOCHS = 30
 LEARNING_RATE = 1e-4
 
-# Weight of the selected-movement supervision.
-DIRECTION_LOSS_WEIGHT = 1.0
 
-# Weight of the candidate-distribution NLL.
+# ------------------------------------------------------------
+# Ranking-aware loss weights
+# ------------------------------------------------------------
+
+COSINE_LOSS_WEIGHT = 1.0
+RANKING_LOSS_WEIGHT = 1.0
 NLL_LOSS_WEIGHT = 1.0
 
-MAX_GRAD_NORM = 1.0
+
+# ------------------------------------------------------------
+# Loss temperatures
+# ------------------------------------------------------------
+
+PREFERENCE_TEMPERATURE = 0.10
+RANKING_TEMPERATURE = 0.10
 
 
 # ============================================================
@@ -94,8 +113,13 @@ def build_session_split():
         key=lambda p: p.name,
     )
 
-    train_ids = {p.name for p in train_files}
-    val_ids = {p.name for p in val_files}
+    train_ids = {
+        p.name for p in train_files
+    }
+
+    val_ids = {
+        p.name for p in val_files
+    }
 
     if train_ids & val_ids:
         raise RuntimeError(
@@ -110,6 +134,7 @@ def build_session_split():
 # ============================================================
 
 def build_dataloaders():
+
     train_files, val_files = build_session_split()
 
     train_dataset = NavigationTransitionDataset(
@@ -154,6 +179,10 @@ def compute_navigation_loss(
     batch: dict,
 ) -> tuple[torch.Tensor, dict[str, float]]:
 
+    # --------------------------------------------------------
+    # Input tensors
+    # --------------------------------------------------------
+
     current_latent = batch[
         "current_latent"
     ].float().to(DEVICE)
@@ -166,21 +195,21 @@ def compute_navigation_loss(
         "similarity_scores"
     ].float().to(DEVICE)
 
-    selected_index = batch[
-        "selected_index"
-    ].long().to(DEVICE)
-
     round_number = batch[
         "round_number"
     ].float().to(DEVICE).unsqueeze(1)
 
     # --------------------------------------------------------
-    # Projector + Sampler
+    # Projector
     # --------------------------------------------------------
 
     predicted_direction = projector(
         current_latent
     )
+
+    # --------------------------------------------------------
+    # Sampler
+    # --------------------------------------------------------
 
     predicted_variance = sampler(
         current_latent,
@@ -202,60 +231,118 @@ def compute_navigation_loss(
         - current_latent.unsqueeze(1)
     )
 
-    # The candidate selected by the simulated witness.
-    batch_indices = torch.arange(
-        current_latent.shape[0],
-        device=DEVICE,
+    # --------------------------------------------------------
+    # Valid candidate mask
+    # --------------------------------------------------------
+
+    valid_mask = (
+        similarity_scores > 0
     )
 
-    selected_delta = observed_deltas[
-        batch_indices,
-        selected_index,
-    ]
+    if not torch.all(
+        valid_mask.any(dim=1)
+    ):
+        raise RuntimeError(
+            "At least one training example has "
+            "no valid candidates."
+        )
 
     # --------------------------------------------------------
-    # 1. Selected-candidate direction loss
+    # Similarity-weighted target distribution
     # --------------------------------------------------------
-
-    direction_loss = F.mse_loss(
-        predicted_direction,
-        selected_delta,
-    )
-
-    # --------------------------------------------------------
-    # 2. Similarity-weighted direction target
-    # --------------------------------------------------------
-    #
-    # Candidates with higher witness similarity receive
-    # greater weight.
-    #
-    # Invalid candidates have similarity == 0 and are ignored.
-    # --------------------------------------------------------
-
-    valid_mask = similarity_scores > 0
 
     masked_scores = similarity_scores.masked_fill(
         ~valid_mask,
         -1e9,
     )
 
-    preference_temperature = 0.10
-
     preference_weights = torch.softmax(
-        masked_scores / preference_temperature,
+        masked_scores / PREFERENCE_TEMPERATURE,
         dim=1,
     )
 
-    # Weighted average of observed candidate movements.
+    # --------------------------------------------------------
+    # Similarity-weighted direction target
+    # --------------------------------------------------------
+
     weighted_direction = (
         observed_deltas
         * preference_weights.unsqueeze(-1)
     ).sum(dim=1)
 
-    preference_direction_loss = F.mse_loss(
+    # --------------------------------------------------------
+    # 1. Preference-direction cosine loss
+    # --------------------------------------------------------
+
+    predicted_direction_normalized = F.normalize(
         predicted_direction,
-        weighted_direction,
+        p=2,
+        dim=1,
+        eps=1e-8,
     )
+
+    weighted_direction_normalized = F.normalize(
+        weighted_direction,
+        p=2,
+        dim=1,
+        eps=1e-8,
+    )
+
+    cosine_alignment = (
+        predicted_direction_normalized
+        * weighted_direction_normalized
+    ).sum(dim=1)
+
+    preference_cosine_loss = (
+        1.0 - cosine_alignment
+    ).mean()
+
+    # --------------------------------------------------------
+    # 2. Candidate-ranking loss
+    # --------------------------------------------------------
+    #
+    # The predicted direction should rank candidate
+    # movements according to witness similarity.
+    #
+    # Higher cosine alignment with the predicted direction
+    # should correspond to higher witness similarity.
+    # --------------------------------------------------------
+
+    candidate_directions_normalized = F.normalize(
+        observed_deltas,
+        p=2,
+        dim=2,
+        eps=1e-8,
+    )
+
+    predicted_candidate_alignment = (
+        candidate_directions_normalized
+        * predicted_direction_normalized.unsqueeze(1)
+    ).sum(dim=2)
+
+    predicted_candidate_alignment = (
+        predicted_candidate_alignment.masked_fill(
+            ~valid_mask,
+            -1e9,
+        )
+    )
+
+    target_distribution = (
+        preference_weights.detach()
+    )
+
+    predicted_distribution = torch.softmax(
+        predicted_candidate_alignment
+        / RANKING_TEMPERATURE,
+        dim=1,
+    )
+
+    ranking_loss = -(
+        target_distribution
+        * torch.log(
+            predicted_distribution + 1e-8
+        )
+    ).sum(dim=1).mean()
 
     # --------------------------------------------------------
     # 3. Similarity-weighted Gaussian NLL
@@ -273,46 +360,63 @@ def compute_navigation_loss(
         )
     )
 
-    # Average NLL over latent dimensions first.
-    per_candidate_nll = per_candidate_nll.mean(
-        dim=2
+    # Average across latent dimensions.
+    per_candidate_nll = (
+        per_candidate_nll.mean(dim=2)
     )
 
-    # Give higher-similarity candidates more influence.
     weighted_nll = (
         per_candidate_nll
         * preference_weights
     ).sum(dim=1).mean()
 
     # --------------------------------------------------------
-    # 4. Combined loss
+    # 4. Combined ranking-aware loss
     # --------------------------------------------------------
 
     total_loss = (
-        1.0 * direction_loss
-        + 0.5 * preference_direction_loss
-        + 1.0 * weighted_nll
+        COSINE_LOSS_WEIGHT
+        * preference_cosine_loss
+
+        + RANKING_LOSS_WEIGHT
+        * ranking_loss
+
+        + NLL_LOSS_WEIGHT
+        * weighted_nll
     )
+
+    # --------------------------------------------------------
+    # Metrics
+    # --------------------------------------------------------
 
     metrics = {
         "total_loss": float(
             total_loss.detach().item()
         ),
 
-        "direction_loss": float(
-            direction_loss.detach().item()
+        "preference_cosine_loss": float(
+            preference_cosine_loss
+            .detach()
+            .item()
         ),
 
-        "preference_direction_loss": float(
-            preference_direction_loss.detach().item()
+        "ranking_loss": float(
+            ranking_loss
+            .detach()
+            .item()
         ),
 
         "nll_loss": float(
-            weighted_nll.detach().item()
+            weighted_nll
+            .detach()
+            .item()
         ),
 
         "mean_variance": float(
-            predicted_variance.detach().mean().item()
+            predicted_variance
+            .detach()
+            .mean()
+            .item()
         ),
     }
 
@@ -335,8 +439,8 @@ def train_one_epoch(
 
     totals = {
         "total_loss": 0.0,
-        "direction_loss": 0.0,
-        "preference_direction_loss": 0.0,
+        "preference_cosine_loss": 0.0,
+        "ranking_loss": 0.0,
         "nll_loss": 0.0,
         "mean_variance": 0.0,
     }
@@ -397,8 +501,8 @@ def validate(
 
     totals = {
         "total_loss": 0.0,
-        "direction_loss": 0.0,
-        "preference_direction_loss": 0.0,
+        "preference_cosine_loss": 0.0,
+        "ranking_loss": 0.0,
         "nll_loss": 0.0,
         "mean_variance": 0.0,
     }
@@ -437,8 +541,14 @@ def main():
 
     set_seed(SEED)
 
-    print("========== PHASE 7 TRAINING ==========")
-    print("Device:", DEVICE)
+    print(
+        "========== PHASE 7 RANKING-AWARE TRAINING =========="
+    )
+
+    print(
+        "Device:",
+        DEVICE,
+    )
 
     if DEVICE.type == "cuda":
         print(
@@ -454,11 +564,13 @@ def main():
     ) = build_dataloaders()
 
     print(
-        "Training sessions     : 402"
+        "Training sessions     :",
+        402,
     )
 
     print(
-        "Validation sessions   : 101"
+        "Validation sessions   :",
+        101,
     )
 
     print(
@@ -471,13 +583,55 @@ def main():
         len(val_dataset),
     )
 
+    print(
+        "Checkpoint directory  :",
+        CHECKPOINT_DIR,
+    )
+
+    # --------------------------------------------------------
+    # Loss configuration
+    # --------------------------------------------------------
+
+    print(
+        "\nLoss configuration:"
+    )
+
+    print(
+        "Preference cosine weight:",
+        COSINE_LOSS_WEIGHT,
+    )
+
+    print(
+        "Ranking loss weight     :",
+        RANKING_LOSS_WEIGHT,
+    )
+
+    print(
+        "NLL loss weight         :",
+        NLL_LOSS_WEIGHT,
+    )
+
+    print(
+        "Preference temperature  :",
+        PREFERENCE_TEMPERATURE,
+    )
+
+    print(
+        "Ranking temperature     :",
+        RANKING_TEMPERATURE,
+    )
+
     # --------------------------------------------------------
     # Clean initialization
     # --------------------------------------------------------
 
-    projector = DirectionProjector().to(DEVICE)
+    projector = DirectionProjector().to(
+        DEVICE
+    )
 
-    sampler = ExplorationSampler().to(DEVICE)
+    sampler = ExplorationSampler().to(
+        DEVICE
+    )
 
     # --------------------------------------------------------
     # Optimizer
@@ -518,15 +672,25 @@ def main():
         val_loader,
     )
 
-    print("\nInitial validation:")
+    print(
+        "\nInitial validation:"
+    )
+
     print(
         f"total={initial_val['total_loss']:.6f}, "
-        f"direction={initial_val['direction_loss']:.6f}, "
+        f"cosine={initial_val['preference_cosine_loss']:.6f}, "
+        f"ranking={initial_val['ranking_loss']:.6f}, "
         f"nll={initial_val['nll_loss']:.6f}, "
         f"variance={initial_val['mean_variance']:.6f}"
     )
 
-    best_val_loss = initial_val["total_loss"]
+    # IMPORTANT:
+    # Initialize from the clean model's validation loss.
+    # This prevents saving a checkpoint that is worse
+    # than the initial model.
+    best_val_loss = (
+        initial_val["total_loss"]
+    )
 
     # --------------------------------------------------------
     # Training
@@ -534,7 +698,10 @@ def main():
 
     history = []
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(
+        1,
+        EPOCHS + 1,
+    ):
 
         train_metrics = train_one_epoch(
             projector,
@@ -555,36 +722,43 @@ def main():
             "validation": val_metrics,
         }
 
-        history.append(epoch_record)
+        history.append(
+            epoch_record
+        )
 
-        print(f"\nEpoch {epoch}/{EPOCHS}")
+        print(
+            f"\nEpoch {epoch}/{EPOCHS}"
+        )
 
         print(
             "Train:"
             f" total={train_metrics['total_loss']:.6f},"
-            f" direction={train_metrics['direction_loss']:.6f},"
-            f" preference={train_metrics['preference_direction_loss']:.6f},"
+            f" cosine={train_metrics['preference_cosine_loss']:.6f},"
+            f" ranking={train_metrics['ranking_loss']:.6f},"
             f" nll={train_metrics['nll_loss']:.6f}"
         )
 
         print(
             "Validation:"
             f" total={val_metrics['total_loss']:.6f},"
-            f" direction={val_metrics['direction_loss']:.6f},"
-            f" preference={val_metrics['preference_direction_loss']:.6f},"
+            f" cosine={val_metrics['preference_cosine_loss']:.6f},"
+            f" ranking={val_metrics['ranking_loss']:.6f},"
             f" nll={val_metrics['nll_loss']:.6f}"
         )
 
         print(
             "Mean variance:",
-            f"{val_metrics['mean_variance']:.6f}"
+            f"{val_metrics['mean_variance']:.6f}",
         )
 
         # ----------------------------------------------------
         # Save best checkpoint
         # ----------------------------------------------------
 
-        if val_metrics["total_loss"] < best_val_loss:
+        if (
+            val_metrics["total_loss"]
+            < best_val_loss
+        ):
 
             best_val_loss = (
                 val_metrics["total_loss"]
@@ -609,18 +783,42 @@ def main():
                 {
                     "model_state_dict":
                         projector.state_dict(),
-                    "epoch": epoch,
+
+                    "epoch":
+                        epoch,
+
                     "validation_loss":
-                        val_metrics["total_loss"],
+                        val_metrics[
+                            "total_loss"
+                        ],
+
                     "config": {
-                        "seed": SEED,
-                        "batch_size": BATCH_SIZE,
+                        "seed":
+                            SEED,
+
+                        "batch_size":
+                            BATCH_SIZE,
+
                         "learning_rate":
                             LEARNING_RATE,
-                        "direction_loss_weight":
-                            DIRECTION_LOSS_WEIGHT,
+
+                        "cosine_loss_weight":
+                            COSINE_LOSS_WEIGHT,
+
+                        "ranking_loss_weight":
+                            RANKING_LOSS_WEIGHT,
+
                         "nll_loss_weight":
                             NLL_LOSS_WEIGHT,
+
+                        "preference_temperature":
+                            PREFERENCE_TEMPERATURE,
+
+                        "ranking_temperature":
+                            RANKING_TEMPERATURE,
+
+                        "max_grad_norm":
+                            MAX_GRAD_NORM,
                     },
                 },
                 projector_path,
@@ -630,26 +828,59 @@ def main():
                 {
                     "model_state_dict":
                         sampler.state_dict(),
-                    "epoch": epoch,
+
+                    "epoch":
+                        epoch,
+
                     "validation_loss":
-                        val_metrics["total_loss"],
+                        val_metrics[
+                            "total_loss"
+                        ],
+
                     "config": {
-                        "seed": SEED,
-                        "batch_size": BATCH_SIZE,
+                        "seed":
+                            SEED,
+
+                        "batch_size":
+                            BATCH_SIZE,
+
                         "learning_rate":
                             LEARNING_RATE,
-                        "direction_loss_weight":
-                            DIRECTION_LOSS_WEIGHT,
+
+                        "cosine_loss_weight":
+                            COSINE_LOSS_WEIGHT,
+
+                        "ranking_loss_weight":
+                            RANKING_LOSS_WEIGHT,
+
                         "nll_loss_weight":
                             NLL_LOSS_WEIGHT,
+
+                        "preference_temperature":
+                            PREFERENCE_TEMPERATURE,
+
+                        "ranking_temperature":
+                            RANKING_TEMPERATURE,
+
+                        "max_grad_norm":
+                            MAX_GRAD_NORM,
                     },
                 },
                 sampler_path,
             )
 
             print(
-                "Saved new best checkpoints."
+                "Saved new best ranking-aware checkpoints."
             )
+
+    # --------------------------------------------------------
+    # Save training history
+    # --------------------------------------------------------
+
+    CHECKPOINT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     history_path = (
         CHECKPOINT_DIR
@@ -661,13 +892,30 @@ def main():
         history_path,
     )
 
+    # --------------------------------------------------------
+    # Final result
+    # --------------------------------------------------------
+
     print(
-        "\nPHASE 7 TRAINING TEST COMPLETE"
+        "\n=========================================="
+    )
+
+    print(
+        "PHASE 7 RANKING-AWARE TRAINING COMPLETE"
     )
 
     print(
         "Best validation loss:",
         best_val_loss,
+    )
+
+    print(
+        "Checkpoint directory:",
+        CHECKPOINT_DIR,
+    )
+
+    print(
+        "=========================================="
     )
 
 
