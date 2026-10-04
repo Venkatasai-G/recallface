@@ -1651,7 +1651,7 @@ def main() -> None:
             checkpoint_path=system_checkpoint_paths["original"],
         )
 
-        print("\nRANKING-AWARE LEARNED")
+        print("\nFINAL LEARNED")
         ranking_result = run_single_system(
             system_name="ranking",
             target_latent=target_latent,
@@ -2560,7 +2560,7 @@ def main() -> None:
 
     print(
 
-        "\nRANKING-AWARE LEARNED"
+        "\nFINAL LEARNED"
 
     )
 
