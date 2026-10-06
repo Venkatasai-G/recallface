@@ -39,6 +39,8 @@ from phase10_backend.session_manager import (
     finalize_session,
 )
 
+from phase11_integration.navigation_engine import NavigationEngine
+
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -70,8 +72,31 @@ STARTER_IMAGE_DIR = (
     / "images"
 )
 
+STARTER_LATENT_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "starter_set"
+    / "starter_latents.pt"
+)
+
+GENERATED_CANDIDATE_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "generated_candidates"
+)
+
 MAX_ROUNDS = 5
 
+# ============================================================
+# PHASE 11 ENGINE AVAILABILITY
+# ============================================================
+
+try:
+    import torch
+
+    PHASE11_GPU_AVAILABLE = torch.cuda.is_available()
+except Exception:
+    PHASE11_GPU_AVAILABLE = False
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -110,9 +135,42 @@ if "fine_tuning_values" not in st.session_state:
 if "fine_tuning_complete" not in st.session_state:
     st.session_state["fine_tuning_complete"] = False
 
+if "current_latent" not in st.session_state:
+    st.session_state["current_latent"] = None
+
+if "candidate_latents" not in st.session_state:
+    st.session_state["candidate_latents"] = None
+
+if "candidate_images" not in st.session_state:
+    st.session_state["candidate_images"] = None
+
+if "candidate_image_paths" not in st.session_state:
+    st.session_state["candidate_image_paths"] = []
+
+if "navigation_engine" not in st.session_state:
+    st.session_state["navigation_engine"] = None
 
 current_round = st.session_state["current_round"]
 
+# ============================================================
+# PHASE 11 NAVIGATION ENGINE
+# ============================================================
+
+if (
+    PHASE11_GPU_AVAILABLE
+    and st.session_state["navigation_engine"] is None
+):
+    try:
+        st.session_state["navigation_engine"] = NavigationEngine(
+            device="cuda",
+            num_candidates=12,
+            latent_clip=3.0,
+        )
+    except Exception as e:
+        st.session_state["navigation_engine"] = None
+        st.warning(
+            f"Phase 11 engine could not be loaded: {e}"
+        )
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -135,6 +193,10 @@ def reset_session():
         "final_image_path",
         "fine_tuning_values",
         "fine_tuning_complete",
+        "current_latent",
+        "candidate_latents",
+        "candidate_images",
+        "candidate_image_paths",
     ]
 
     for key in keys_to_reset:
@@ -157,9 +219,18 @@ def reset_session():
         elif key == "fine_tuning_values":
             st.session_state[key] = {}
 
+        elif key == "candidate_image_paths":
+            st.session_state[key] = []
+
+        elif key in [
+            "current_latent",
+            "candidate_latents",
+            "candidate_images",
+        ]:
+            st.session_state[key] = None
+
         else:
             st.session_state[key] = False
-
 
 def get_starter_images():
     """
@@ -177,19 +248,140 @@ def get_starter_images():
 
     return image_paths
 
+def get_starter_latents():
+    """
+    Load the 12 Phase 2 starter latent vectors.
+    """
+
+    if not STARTER_LATENT_PATH.exists():
+        return None
+
+    import torch
+
+    latents = torch.load(
+        STARTER_LATENT_PATH,
+        map_location="cpu",
+        weights_only=False,
+    )
+
+    if not isinstance(latents, torch.Tensor):
+        return None
+
+    if latents.shape != (12, 512):
+        return None
+
+    return latents
+
+def get_starter_latent(face_number):
+    """
+    Return the Phase 2 latent corresponding to a starter face number.
+    """
+
+    latents = get_starter_latents()
+
+    if latents is None:
+        return None
+
+    if not 1 <= face_number <= len(latents):
+        return None
+
+    return latents[face_number - 1].clone()
+
+def generate_phase11_candidates():
+    """
+    Generate candidates using the Phase 11 NavigationEngine.
+
+    Returns:
+        tuple:
+            candidate_latents
+            candidate_images
+    """
+
+    engine = st.session_state.get("navigation_engine")
+    current_latent = st.session_state.get("current_latent")
+    round_number = st.session_state.get("current_round")
+
+    if engine is None:
+        return None, None
+
+    if current_latent is None:
+        return None, None
+
+    if round_number is None or round_number <= 1:
+        return None, None
+
+    candidate_latents, candidate_images = engine.generate_round(
+        current_latent=current_latent,
+        round_number=round_number,
+    )
+
+    return candidate_latents, candidate_images
+
+def save_candidate_images(candidate_images, round_number):
+    """
+    Save Phase 11 generated candidate images as PNG files.
+
+    Returns:
+        list[Path]: Paths to the saved candidate images.
+    """
+
+    if candidate_images is None:
+        return []
+
+    session_id = st.session_state.get("session_id")
+
+    if not session_id:
+        return []
+
+    round_dir = (
+        GENERATED_CANDIDATE_DIR
+        / str(session_id)
+        / f"round_{round_number}"
+    )
+
+    round_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    image_paths = []
+
+    from PIL import Image
+    import numpy as np
+
+    for index, image_array in enumerate(candidate_images):
+        image_array = np.asarray(
+            image_array,
+            dtype=np.uint8,
+        )
+
+        image = Image.fromarray(
+            image_array,
+            mode="RGB",
+        )
+
+        image_path = (
+            round_dir
+            / f"candidate_{index + 1}.png"
+        )
+
+        image.save(image_path)
+
+        image_paths.append(image_path)
+
+    return image_paths
 
 def get_round_images(round_number):
     """
-    Phase 9 simulated candidate generation.
+    Return candidate images for the current round.
 
     Round 1:
-        Phase 2 starter set.
+        Use the permanent Phase 2 starter set.
 
     Later rounds:
-        Same starter images in reverse order.
-
-    Real Projector/Sampler generation will be connected
-    during Phase 11.
+        Use the real Phase 11 NavigationEngine when available.
+        On CPU-only environments, fall back to the Phase 2
+        starter images so the Streamlit UI remains usable.
     """
 
     starter_images = get_starter_images()
@@ -197,8 +389,64 @@ def get_round_images(round_number):
     if round_number == 1:
         return starter_images
 
-    return list(reversed(starter_images))
+     # Reuse candidates already generated for this round.
+    existing_paths = st.session_state.get(
+        "candidate_image_paths"
+    )
 
+    if existing_paths:
+        existing_paths = [
+            Path(path)
+            for path in existing_paths
+            if Path(path).exists()
+        ]
+
+        if existing_paths:
+            return existing_paths
+        
+    # --------------------------------------------------------
+    # Phase 11 real candidate generation
+    # --------------------------------------------------------
+
+    if PHASE11_GPU_AVAILABLE:
+        try:
+            candidate_latents, candidate_images = (
+                generate_phase11_candidates()
+            )
+
+            if (
+                candidate_latents is not None
+                and candidate_images is not None
+            ):
+                st.session_state[
+                    "candidate_latents"
+                ] = candidate_latents
+
+                st.session_state[
+                    "candidate_images"
+                ] = candidate_images
+
+                candidate_image_paths = save_candidate_images(
+                    candidate_images,
+                    round_number,
+                )
+
+                st.session_state[
+                    "candidate_image_paths"
+                ] = candidate_image_paths
+
+                return candidate_image_paths
+
+        except Exception as e:
+            st.warning(
+                f"Phase 11 candidate generation failed: {e}"
+            )
+
+    # --------------------------------------------------------
+    # CPU/local development fallback
+    # --------------------------------------------------------
+
+    return list(reversed(starter_images))
 
 def get_saved_rounds():
     """
@@ -212,7 +460,6 @@ def get_saved_rounds():
 
     return get_session_rounds(session_id)
 
-
 def finalize_current_session():
     """
     Mark the current database session as completed.
@@ -222,7 +469,6 @@ def finalize_current_session():
 
     if session_id:
         finalize_session(session_id)
-
 
 # ============================================================
 # LANDING PAGE
@@ -290,6 +536,10 @@ if not st.session_state["session_started"]:
         st.session_state["final_image_path"] = None
         st.session_state["fine_tuning_values"] = {}
         st.session_state["fine_tuning_complete"] = False
+        st.session_state["current_latent"] = None
+        st.session_state["candidate_latents"] = None
+        st.session_state["candidate_images"] = None
+        st.session_state["candidate_image_paths"] = []
 
         st.rerun()
 
@@ -854,7 +1104,6 @@ else:
                 ),
                 use_container_width=True,
             ):
-
                 st.session_state[
                     "selected_face"
                 ] = face_number
@@ -862,6 +1111,18 @@ else:
                 st.session_state[
                     "selected_image_path"
                 ] = str(image_path)
+
+                # -----------------------------------------------
+                # Round 1: store the selected Phase 2 latent
+                # -----------------------------------------------
+
+                if current_round == 1:
+                    selected_latent = get_starter_latent(face_number)
+
+                    if selected_latent is not None:
+                        st.session_state[
+                            "current_latent"
+                        ] = selected_latent
 
                 st.rerun()
 
@@ -1015,5 +1276,17 @@ else:
             st.session_state[
                 "selected_image_path"
             ] = None
+
+            st.session_state[
+                "candidate_latents"
+            ] = None
+
+            st.session_state[
+                "candidate_images"
+            ] = None
+
+            st.session_state[
+                "candidate_image_paths"
+            ] = []
 
             st.rerun()

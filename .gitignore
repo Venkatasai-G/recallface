@@ -97,3 +97,5 @@ diffae/
 *.db
 *.sqlite
 *.sqlite3
+
+app_changes.diff
