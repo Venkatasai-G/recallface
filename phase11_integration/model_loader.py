@@ -8,18 +8,45 @@ from phase6_simulated_data.diffae_candidate_generator import DiffAECandidateGene
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-PROJECTOR_CHECKPOINT = (
+PHASE7_FINAL_DIR = (
     PROJECT_ROOT
     / "checkpoints"
     / "PHASE7_FINAL"
-    / "PHASE7_FINAL_projector_best.pt"
 )
 
-SAMPLER_CHECKPOINT = (
-    PROJECT_ROOT
-    / "checkpoints"
-    / "PHASE7_FINAL"
-    / "PHASE7_FINAL_sampler_best.pt"
+
+def _find_checkpoint(preferred_name, fallback_name):
+    """
+    Find a Phase 7 FINAL checkpoint using the standard Kaggle
+    filename first and the existing Windows filename as fallback.
+    """
+
+    preferred = PHASE7_FINAL_DIR / preferred_name
+
+    if preferred.exists():
+        return preferred
+
+    fallback = PHASE7_FINAL_DIR / fallback_name
+
+    if fallback.exists():
+        return fallback
+
+    raise FileNotFoundError(
+        "Phase 7 FINAL checkpoint not found.\n"
+        f"Checked:\n"
+        f"  {preferred}\n"
+        f"  {fallback}"
+    )
+
+
+PROJECTOR_CHECKPOINT = _find_checkpoint(
+    "projector_best.pt",
+    "PHASE7_FINAL_projector_best.pt",
+)
+
+SAMPLER_CHECKPOINT = _find_checkpoint(
+    "sampler_best.pt",
+    "PHASE7_FINAL_sampler_best.pt",
 )
 
 
