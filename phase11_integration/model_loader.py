@@ -17,105 +17,57 @@ from phase6_simulated_data.diffae_candidate_generator import (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-
-# ============================================================
-# Checkpoint locations
-# ============================================================
-
-# Normal project checkpoint directory.
-PROJECT_CHECKPOINT_DIR = (
+PHASE7_FINAL_DIR = (
     PROJECT_ROOT
     / "checkpoints"
     / "PHASE7_FINAL"
 )
-
-# Kaggle working directory.
-#
-# IMPORTANT:
-# In your current Kaggle environment the Phase 7 FINAL
-# checkpoints are located directly here:
-#
-# /kaggle/working/PHASE7_FINAL_projector_best.pt
-# /kaggle/working/PHASE7_FINAL_sampler_best.pt
-#
-KAGGLE_WORKING_DIR = Path("/kaggle/working")
 
 
 def find_checkpoint(filename):
     """
     Find a Phase 7 FINAL checkpoint.
 
-    Supported locations:
+    Supports:
+    1. Standard repository filename:
+       checkpoints/PHASE7_FINAL/projector_best.pt
 
-    1. Project standard layout:
-       recallface/checkpoints/PHASE7_FINAL/<filename>
-
-    2. Kaggle working directory:
-       /kaggle/working/<filename>
-
-    3. Existing Windows naming:
-       recallface/checkpoints/PHASE7_FINAL/
-       PHASE7_FINAL_<filename>
+    2. Existing Windows filename:
+       checkpoints/PHASE7_FINAL/PHASE7_FINAL_projector_best.pt
     """
 
-    # --------------------------------------------------------
-    # Standard project filename
-    # --------------------------------------------------------
-
-    standard_path = (
-        PROJECT_CHECKPOINT_DIR
-        / filename
-    )
-
-    # --------------------------------------------------------
-    # Kaggle root filename
-    # --------------------------------------------------------
-
-    kaggle_path = (
-        KAGGLE_WORKING_DIR
-        / filename
-    )
-
-    # --------------------------------------------------------
-    # Existing Windows filename
-    # --------------------------------------------------------
+    standard_path = PHASE7_FINAL_DIR / filename
 
     windows_path = (
-        PROJECT_CHECKPOINT_DIR
+        PHASE7_FINAL_DIR
         / f"PHASE7_FINAL_{filename}"
     )
 
-    candidates = [
-        standard_path,
-        kaggle_path,
-        windows_path,
-    ]
+    print(f"\nSearching for: {filename}")
 
-    print(f"\nSearching for checkpoint: {filename}")
+    print("Standard path:")
+    print(standard_path)
+    print("Exists:", standard_path.is_file())
 
-    for path in candidates:
-        print(f"  Checking: {path}")
-        print(f"  Exists:   {path.exists()}")
+    if standard_path.is_file():
+        print("FOUND:", standard_path)
+        return standard_path
 
-        if path.is_file():
-            print(f"  FOUND:    {path}")
-            return path
+    print("\nWindows path:")
+    print(windows_path)
+    print("Exists:", windows_path.is_file())
 
-    checked = "\n".join(
-        f"  {path}"
-        for path in candidates
-    )
+    if windows_path.is_file():
+        print("FOUND:", windows_path)
+        return windows_path
 
     raise FileNotFoundError(
-        "\nPhase 7 FINAL checkpoint was not found.\n\n"
-        "Checked these locations:\n"
-        f"{checked}"
+        "Phase 7 FINAL checkpoint not found.\n"
+        f"Checked:\n"
+        f"  {standard_path}\n"
+        f"  {windows_path}"
     )
 
-
-# ============================================================
-# Resolve Phase 7 checkpoints
-# ============================================================
 
 PROJECTOR_CHECKPOINT = find_checkpoint(
     "projector_best.pt"
