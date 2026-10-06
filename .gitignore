@@ -52,6 +52,7 @@ pretrained/diffae/
 # Trained model checkpoints
 # ------------------------------------------------------------
 checkpoints/
+*.pt
 
 # ------------------------------------------------------------
 # Generated results
