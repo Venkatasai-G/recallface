@@ -268,7 +268,7 @@ class NavigationEngine:
             )
 
         return self.candidate_generator.generate(
-            candidate_latents
+            candidate_latents.cpu()
         )
 
     @torch.no_grad()
