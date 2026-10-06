@@ -3,7 +3,9 @@ from pathlib import Path
 import torch
 
 from phase4_projector.direction_projector import DirectionProjector
-from phase5_sampler.exploration_sampler import ExplorationSampler
+from phase5_sampler.exploration_sampler import (
+    ExplorationSampler,
+)
 from phase6_simulated_data.diffae_candidate_generator import (
     DiffAECandidateGenerator,
 )
@@ -15,7 +17,13 @@ from phase6_simulated_data.diffae_candidate_generator import (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-PHASE7_FINAL_DIR = (
+
+# ============================================================
+# Checkpoint locations
+# ============================================================
+
+# Normal project checkpoint directory.
+PROJECT_CHECKPOINT_DIR = (
     PROJECT_ROOT
     / "checkpoints"
     / "PHASE7_FINAL"
@@ -23,85 +31,108 @@ PHASE7_FINAL_DIR = (
 
 # Kaggle working directory.
 #
-# The Phase 7 checkpoints may exist directly here depending
-# on how the Kaggle environment was prepared.
+# IMPORTANT:
+# In your current Kaggle environment the Phase 7 FINAL
+# checkpoints are located directly here:
+#
+# /kaggle/working/PHASE7_FINAL_projector_best.pt
+# /kaggle/working/PHASE7_FINAL_sampler_best.pt
+#
 KAGGLE_WORKING_DIR = Path("/kaggle/working")
 
 
-# ============================================================
-# Checkpoint resolution
-# ============================================================
-
-def _find_checkpoint(
-    standard_name,
-    windows_name,
-    root_name,
-):
+def find_checkpoint(filename):
     """
     Find a Phase 7 FINAL checkpoint.
 
-    Supported layouts:
+    Supported locations:
 
-    1. Standard repository layout:
-       checkpoints/
-       └── PHASE7_FINAL/
-           ├── projector_best.pt
-           └── sampler_best.pt
+    1. Project standard layout:
+       recallface/checkpoints/PHASE7_FINAL/<filename>
 
-    2. Existing Windows layout:
-       checkpoints/
-       └── PHASE7_FINAL/
-           ├── PHASE7_FINAL_projector_best.pt
-           └── PHASE7_FINAL_sampler_best.pt
+    2. Kaggle working directory:
+       /kaggle/working/<filename>
 
-    3. Kaggle working-directory layout:
-       /kaggle/working/
-       ├── PHASE7_FINAL_projector_best.pt
-       └── PHASE7_FINAL_sampler_best.pt
+    3. Existing Windows naming:
+       recallface/checkpoints/PHASE7_FINAL/
+       PHASE7_FINAL_<filename>
     """
 
+    # --------------------------------------------------------
+    # Standard project filename
+    # --------------------------------------------------------
+
+    standard_path = (
+        PROJECT_CHECKPOINT_DIR
+        / filename
+    )
+
+    # --------------------------------------------------------
+    # Kaggle root filename
+    # --------------------------------------------------------
+
+    kaggle_path = (
+        KAGGLE_WORKING_DIR
+        / filename
+    )
+
+    # --------------------------------------------------------
+    # Existing Windows filename
+    # --------------------------------------------------------
+
+    windows_path = (
+        PROJECT_CHECKPOINT_DIR
+        / f"PHASE7_FINAL_{filename}"
+    )
+
     candidates = [
-        PHASE7_FINAL_DIR / standard_name,
-        PHASE7_FINAL_DIR / windows_name,
-        KAGGLE_WORKING_DIR / root_name,
+        standard_path,
+        kaggle_path,
+        windows_path,
     ]
 
+    print(f"\nSearching for checkpoint: {filename}")
+
     for path in candidates:
-        if path.exists():
+        print(f"  Checking: {path}")
+        print(f"  Exists:   {path.exists()}")
+
+        if path.is_file():
+            print(f"  FOUND:    {path}")
             return path
 
-    checked_paths = "\n".join(
+    checked = "\n".join(
         f"  {path}"
         for path in candidates
     )
 
     raise FileNotFoundError(
-        "Phase 7 FINAL checkpoint not found.\n"
-        "Checked:\n"
-        f"{checked_paths}"
+        "\nPhase 7 FINAL checkpoint was not found.\n\n"
+        "Checked these locations:\n"
+        f"{checked}"
     )
 
 
-PROJECTOR_CHECKPOINT = _find_checkpoint(
-    standard_name="projector_best.pt",
-    windows_name="PHASE7_FINAL_projector_best.pt",
-    root_name="PHASE7_FINAL_projector_best.pt",
+# ============================================================
+# Resolve Phase 7 checkpoints
+# ============================================================
+
+PROJECTOR_CHECKPOINT = find_checkpoint(
+    "projector_best.pt"
 )
 
-SAMPLER_CHECKPOINT = _find_checkpoint(
-    standard_name="sampler_best.pt",
-    windows_name="PHASE7_FINAL_sampler_best.pt",
-    root_name="PHASE7_FINAL_sampler_best.pt",
+SAMPLER_CHECKPOINT = find_checkpoint(
+    "sampler_best.pt"
 )
 
 
 # ============================================================
-# Phase 7 model loading
+# Load Phase 7 navigation models
 # ============================================================
 
 def load_navigation_models(device=None):
     """
-    Load the trained Phase 7 Projector and Sampler.
+    Load the trained Phase 7 FINAL Projector and Sampler.
 
     Returns:
         projector: trained DirectionProjector
@@ -118,23 +149,7 @@ def load_navigation_models(device=None):
 
     device = torch.device(device)
 
-    # --------------------------------------------------------
-    # Verify checkpoint files
-    # --------------------------------------------------------
-
-    if not PROJECTOR_CHECKPOINT.exists():
-        raise FileNotFoundError(
-            "Projector checkpoint not found:\n"
-            f"{PROJECTOR_CHECKPOINT}"
-        )
-
-    if not SAMPLER_CHECKPOINT.exists():
-        raise FileNotFoundError(
-            "Sampler checkpoint not found:\n"
-            f"{SAMPLER_CHECKPOINT}"
-        )
-
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("Loading Phase 7 FINAL navigation models")
     print("=" * 60)
 
@@ -151,14 +166,14 @@ def load_navigation_models(device=None):
     print("Device:", device)
 
     # --------------------------------------------------------
-    # Create the exact Phase 7 architectures
+    # Create exact Phase 7 architectures
     # --------------------------------------------------------
 
     projector = DirectionProjector().to(device)
     sampler = ExplorationSampler().to(device)
 
     # --------------------------------------------------------
-    # Load trained checkpoint dictionaries
+    # Load checkpoints
     # --------------------------------------------------------
 
     projector_checkpoint = torch.load(
@@ -208,23 +223,41 @@ def load_navigation_models(device=None):
     projector.eval()
     sampler.eval()
 
-    print("Projector loaded successfully.")
+    print("\nProjector loaded successfully.")
     print("Sampler loaded successfully.")
+
+    print(
+        "Projector training epoch:",
+        projector_checkpoint.get("epoch"),
+    )
+
+    print(
+        "Sampler training epoch:",
+        sampler_checkpoint.get("epoch"),
+    )
+
+    print(
+        "Validation loss:",
+        projector_checkpoint.get(
+            "validation_loss"
+        ),
+    )
+
     print("=" * 60)
 
     return projector, sampler, device
 
 
 # ============================================================
-# Phase 6 DiffAE candidate generator
+# Load Phase 6 DiffAE candidate generator
 # ============================================================
 
 def load_candidate_generator(device=None):
     """
     Load the existing Phase 6 DiffAE candidate generator.
 
-    Phase 11 intentionally reuses the Phase 6 implementation
-    instead of duplicating DiffAE loading and inference logic.
+    Phase 11 deliberately reuses the Phase 6 implementation
+    instead of duplicating DiffAE loading/inference code.
     """
 
     if device is None:
@@ -234,7 +267,7 @@ def load_candidate_generator(device=None):
             else "cpu"
         )
 
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("Loading Phase 6 DiffAE candidate generator")
     print("=" * 60)
 
