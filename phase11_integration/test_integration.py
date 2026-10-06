@@ -44,13 +44,18 @@ def main():
     )
 
     print(
-        "Candidate image array shape:",
-        candidate_images.shape,
+        "Candidate image count:",
+        len(candidate_images),
     )
 
     print(
-        "Candidate image dtype:",
-        candidate_images.dtype,
+        "First candidate image shape:",
+        candidate_images[0].shape,
+    )
+
+    print(
+        "First candidate image dtype:",
+        candidate_images[0].dtype,
     )
 
     print(
@@ -59,18 +64,13 @@ def main():
     )
 
     print(
-        "Candidate image count:",
-        len(candidate_images),
-    )
-
-    print(
         "Candidate image size:",
-        candidate_images.shape[1:],
+        candidate_images[0].shape,
     )
 
     assert candidate_latents.shape == (12, 512)
     assert len(candidate_images) == 12
-    assert candidate_images.shape[1:] == (256, 256, 3)
+    assert candidate_images[0].shape == (256, 256, 3)
     assert torch.isfinite(candidate_latents).all()
 
     print("\n" + "=" * 60)
