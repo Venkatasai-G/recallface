@@ -1,5 +1,43 @@
 from pathlib import Path
+import sys
+
 import streamlit as st
+
+
+# ============================================================
+# PROJECT ROOT
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ============================================================
+# PHASE 10 BACKEND
+# ============================================================
+
+from phase10_backend.database import (
+    initialize_database,
+    migrate_database,
+)
+
+from phase10_backend.session_manager import (
+    create_session,
+    save_round,
+    get_session,
+    get_session_rounds,
+    finalize_session,
+)
+
+from phase10_backend.session_manager import (
+    create_session,
+    save_round,
+    get_session,
+    get_session_rounds,
+    finalize_session,
+)
 
 
 # ============================================================
@@ -14,10 +52,16 @@ st.set_page_config(
 
 
 # ============================================================
-# PROJECT PATHS
+# DATABASE INITIALIZATION
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+initialize_database()
+migrate_database()
+
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
 
 STARTER_IMAGE_DIR = (
     PROJECT_ROOT
@@ -36,15 +80,15 @@ MAX_ROUNDS = 5
 if "session_started" not in st.session_state:
     st.session_state["session_started"] = False
 
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = None
+
 if "selected_face" not in st.session_state:
     st.session_state["selected_face"] = None
 
 if "selected_image_path" not in st.session_state:
     st.session_state["selected_image_path"] = None
 
-# IMPORTANT:
-# This stores the most recently selected image permanently,
-# even after selected_image_path is reset for the next round.
 if "latest_selected_image_path" not in st.session_state:
     st.session_state["latest_selected_image_path"] = None
 
@@ -76,11 +120,12 @@ current_round = st.session_state["current_round"]
 
 def reset_session():
     """
-    Completely reset the current RecallFace session.
+    Reset the current Streamlit session state.
     """
 
     keys_to_reset = [
         "session_started",
+        "session_id",
         "selected_face",
         "selected_image_path",
         "latest_selected_image_path",
@@ -93,6 +138,7 @@ def reset_session():
     ]
 
     for key in keys_to_reset:
+
         if key == "session_started":
             st.session_state[key] = False
 
@@ -100,6 +146,7 @@ def reset_session():
             st.session_state[key] = 1
 
         elif key in [
+            "session_id",
             "selected_face",
             "selected_image_path",
             "latest_selected_image_path",
@@ -116,7 +163,7 @@ def reset_session():
 
 def get_starter_images():
     """
-    Return the Phase 2 starter images in deterministic order.
+    Return Phase 2 starter images.
     """
 
     if not STARTER_IMAGE_DIR.exists():
@@ -133,13 +180,13 @@ def get_starter_images():
 
 def get_round_images(round_number):
     """
-    Phase 9 placeholder behavior.
+    Phase 9 simulated candidate generation.
 
     Round 1:
-        Uses the actual Phase 2 starter set.
+        Phase 2 starter set.
 
     Later rounds:
-        Uses the same starter images in reverse order.
+        Same starter images in reverse order.
 
     Real Projector/Sampler generation will be connected
     during Phase 11.
@@ -151,6 +198,30 @@ def get_round_images(round_number):
         return starter_images
 
     return list(reversed(starter_images))
+
+
+def get_saved_rounds():
+    """
+    Retrieve the current session's rounds from SQLite.
+    """
+
+    session_id = st.session_state.get("session_id")
+
+    if not session_id:
+        return []
+
+    return get_session_rounds(session_id)
+
+
+def finalize_current_session():
+    """
+    Mark the current database session as completed.
+    """
+
+    session_id = st.session_state.get("session_id")
+
+    if session_id:
+        finalize_session(session_id)
 
 
 # ============================================================
@@ -189,9 +260,11 @@ if not st.session_state["session_started"]:
     )
 
     st.info(
-        "Phase 9 currently uses simulated round generation. "
-        "The trained Projector/Sampler and DiffAE will be integrated "
-        "during Phase 11."
+        """
+        Phase 9 currently uses simulated round generation.
+        The trained Projector/Sampler and DiffAE will be integrated
+        during Phase 11.
+        """
     )
 
     if st.button(
@@ -200,6 +273,13 @@ if not st.session_state["session_started"]:
         use_container_width=False,
     ):
 
+        # ----------------------------------------------------
+        # CREATE DATABASE SESSION
+        # ----------------------------------------------------
+
+        session_id = create_session()
+
+        st.session_state["session_id"] = session_id
         st.session_state["session_started"] = True
         st.session_state["current_round"] = 1
         st.session_state["selected_face"] = None
@@ -242,7 +322,6 @@ elif st.session_state["fine_tuning"]:
             max_value=5,
             value=0,
             step=1,
-            help="Simulated age adjustment.",
         )
 
         hair = st.slider(
@@ -251,7 +330,6 @@ elif st.session_state["fine_tuning"]:
             max_value=5,
             value=0,
             step=1,
-            help="Simulated hair adjustment.",
         )
 
         face_shape = st.slider(
@@ -260,7 +338,6 @@ elif st.session_state["fine_tuning"]:
             max_value=5,
             value=0,
             step=1,
-            help="Simulated face shape adjustment.",
         )
 
     with col2:
@@ -271,7 +348,6 @@ elif st.session_state["fine_tuning"]:
             max_value=5,
             value=0,
             step=1,
-            help="Simulated smile adjustment.",
         )
 
         eyes = st.slider(
@@ -280,18 +356,21 @@ elif st.session_state["fine_tuning"]:
             max_value=5,
             value=0,
             step=1,
-            help="Simulated eye adjustment.",
         )
 
     st.markdown("---")
 
-    # --------------------------------------------------------
-    # DISPLAY CURRENT SELECTED IMAGE
-    # --------------------------------------------------------
+    # ========================================================
+    # CURRENT COMPOSITE
+    # ========================================================
 
     current_image = (
-        st.session_state.get("latest_selected_image_path")
-        or st.session_state.get("selected_image_path")
+        st.session_state.get(
+            "latest_selected_image_path"
+        )
+        or st.session_state.get(
+            "selected_image_path"
+        )
     )
 
     if current_image:
@@ -314,9 +393,9 @@ elif st.session_state["fine_tuning"]:
                 "The selected image could not be found."
             )
 
-    # --------------------------------------------------------
+    # ========================================================
     # BUTTONS
-    # --------------------------------------------------------
+    # ========================================================
 
     col1, col2, col3 = st.columns(3)
 
@@ -328,7 +407,9 @@ elif st.session_state["fine_tuning"]:
             use_container_width=True,
         ):
 
-            st.session_state["fine_tuning_values"] = {
+            st.session_state[
+                "fine_tuning_values"
+            ] = {
                 "age": age,
                 "hair": hair,
                 "face_shape": face_shape,
@@ -347,10 +428,6 @@ elif st.session_state["fine_tuning"]:
             use_container_width=True,
         ):
 
-            # IMPORTANT:
-            # Use latest_selected_image_path instead of
-            # selected_image_path because selected_image_path
-            # may have been reset after Continue.
             final_path = (
                 st.session_state.get(
                     "latest_selected_image_path"
@@ -360,10 +437,27 @@ elif st.session_state["fine_tuning"]:
                 )
             )
 
-            st.session_state["final_image_path"] = final_path
-            st.session_state["fine_tuning_complete"] = True
-            st.session_state["fine_tuning"] = False
-            st.session_state["show_final_output"] = True
+            st.session_state[
+                "final_image_path"
+            ] = final_path
+
+            st.session_state[
+                "fine_tuning_complete"
+            ] = True
+
+            # ------------------------------------------------
+            # COMPLETE DATABASE SESSION
+            # ------------------------------------------------
+
+            finalize_current_session()
+
+            st.session_state[
+                "fine_tuning"
+            ] = False
+
+            st.session_state[
+                "show_final_output"
+            ] = True
 
             st.rerun()
 
@@ -374,7 +468,9 @@ elif st.session_state["fine_tuning"]:
             use_container_width=True,
         ):
 
-            st.session_state["fine_tuning"] = False
+            st.session_state[
+                "fine_tuning"
+            ] = False
 
             st.rerun()
 
@@ -395,9 +491,9 @@ elif st.session_state["show_final_output"]:
         "final_image_path"
     )
 
-    # --------------------------------------------------------
-    # DISPLAY FINAL IMAGE
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL IMAGE
+    # ========================================================
 
     if final_image:
 
@@ -437,7 +533,7 @@ elif st.session_state["show_final_output"]:
             except Exception as e:
 
                 st.error(
-                    f"Unable to prepare the image for download: {e}"
+                    f"Unable to prepare image for download: {e}"
                 )
 
         else:
@@ -454,9 +550,9 @@ elif st.session_state["show_final_output"]:
 
     st.markdown("---")
 
-    # --------------------------------------------------------
+    # ========================================================
     # START NEW SESSION
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.button(
         "Start New Session",
@@ -484,19 +580,46 @@ else:
 
         st.warning(
             f"""
-            The maximum number of rounds ({MAX_ROUNDS}) has been
-            reached. The system can now finalize the current face,
-            restart the session, or fine-tune the face.
+            The maximum number of rounds ({MAX_ROUNDS}) has
+            been reached. The system can now finalize the
+            current face, restart the session, or fine-tune
+            the face.
             """
         )
 
-        st.markdown("### What would you like to do?")
+        # ====================================================
+        # DATABASE SESSION INFORMATION
+        # ====================================================
+
+        session_id = st.session_state.get(
+            "session_id"
+        )
+
+        if session_id:
+
+            session_data = get_session(
+                session_id
+            )
+
+            if session_data:
+
+                st.caption(
+                    f"Session ID: {session_data['session_id']}"
+                )
+
+                st.caption(
+                    f"Status: {session_data['status']}"
+                )
+
+        st.markdown(
+            "### What would you like to do?"
+        )
 
         col1, col2, col3 = st.columns(3)
 
-        # ----------------------------------------------------
+        # ====================================================
         # FINALIZE
-        # ----------------------------------------------------
+        # ====================================================
 
         with col1:
 
@@ -515,14 +638,22 @@ else:
                     )
                 )
 
-                st.session_state["final_image_path"] = final_path
-                st.session_state["show_final_output"] = True
+                st.session_state[
+                    "final_image_path"
+                ] = final_path
+
+                # Complete database session
+                finalize_current_session()
+
+                st.session_state[
+                    "show_final_output"
+                ] = True
 
                 st.rerun()
 
-        # ----------------------------------------------------
+        # ====================================================
         # RESTART
-        # ----------------------------------------------------
+        # ====================================================
 
         with col2:
 
@@ -535,9 +666,9 @@ else:
 
                 st.rerun()
 
-        # ----------------------------------------------------
+        # ====================================================
         # FINE-TUNE
-        # ----------------------------------------------------
+        # ====================================================
 
         with col3:
 
@@ -546,7 +677,9 @@ else:
                 use_container_width=True,
             ):
 
-                st.session_state["fine_tuning"] = True
+                st.session_state[
+                    "fine_tuning"
+                ] = True
 
                 st.rerun()
 
@@ -570,47 +703,38 @@ else:
     )
 
     # ========================================================
+    # SESSION INFORMATION
+    # ========================================================
+
+    session_id = st.session_state.get(
+        "session_id"
+    )
+
+    if session_id:
+
+        st.caption(
+            f"Session ID: {session_id}"
+        )
+
+    # ========================================================
     # HISTORY STRIP
     # ========================================================
 
-    previous_rounds = []
+    saved_rounds = get_saved_rounds()
 
-    for key in st.session_state.keys():
+    if saved_rounds:
 
-        if key.startswith("round_"):
-
-            try:
-                round_number = int(
-                    key.split("_")[1]
-                )
-
-                if round_number < current_round:
-                    previous_rounds.append(
-                        (
-                            round_number,
-                            st.session_state[key],
-                        )
-                    )
-
-            except ValueError:
-                pass
-
-    previous_rounds.sort(
-        key=lambda x: x[0]
-    )
-
-    if previous_rounds:
-
-        st.markdown("### Session History")
-
-        history_columns = st.columns(
-            min(len(previous_rounds), 5)
+        st.markdown(
+            "### Session History"
         )
 
-        for position, (
-            round_number,
-            round_data,
-        ) in enumerate(previous_rounds):
+        history_columns = st.columns(
+            min(len(saved_rounds), 5)
+        )
+
+        for position, round_data in enumerate(
+            saved_rounds
+        ):
 
             column = history_columns[
                 position % len(history_columns)
@@ -622,6 +746,10 @@ else:
 
             selected_face = round_data.get(
                 "selected_face"
+            )
+
+            round_number = round_data.get(
+                "round_number"
             )
 
             with column:
@@ -731,7 +859,6 @@ else:
                     "selected_face"
                 ] = face_number
 
-                # Store exact selected image path.
                 st.session_state[
                     "selected_image_path"
                 ] = str(image_path)
@@ -742,7 +869,9 @@ else:
     # SELECTION DETAILS
     # ========================================================
 
-    if st.session_state["selected_face"]:
+    if st.session_state[
+        "selected_face"
+    ]:
 
         st.markdown("---")
 
@@ -759,9 +888,9 @@ else:
             ]
         )
 
-        # ----------------------------------------------------
-        # SHOW SELECTED IMAGE
-        # ----------------------------------------------------
+        # ====================================================
+        # SELECTED IMAGE
+        # ====================================================
 
         if (
             selected_path
@@ -777,9 +906,9 @@ else:
                 width=350,
             )
 
-        # ----------------------------------------------------
+        # ====================================================
         # CONFIDENCE
-        # ----------------------------------------------------
+        # ====================================================
 
         confidence = st.slider(
             "How confident are you in this selection?",
@@ -790,9 +919,9 @@ else:
             format="%d%%",
         )
 
-        # ----------------------------------------------------
-        # OPTIONAL GUIDANCE
-        # ----------------------------------------------------
+        # ====================================================
+        # GUIDANCE
+        # ====================================================
 
         guidance = st.text_area(
             "Optional guidance",
@@ -802,9 +931,9 @@ else:
             ),
         )
 
-        # ----------------------------------------------------
-        # CONTINUE BUTTON
-        # ----------------------------------------------------
+        # ====================================================
+        # CONTINUE
+        # ====================================================
 
         if st.button(
             "Continue to Next Round →",
@@ -813,40 +942,59 @@ else:
         ):
 
             # -----------------------------------------------
-            # Store this round
+            # Get current values BEFORE clearing state
             # -----------------------------------------------
 
-            st.session_state[
-                f"round_{current_round}"
-            ] = {
-                "selected_face": (
-                    st.session_state[
-                        "selected_face"
-                    ]
-                ),
-                "selected_image_path": (
-                    st.session_state[
-                        "selected_image_path"
-                    ]
-                ),
-                "confidence": confidence,
-                "guidance": guidance,
-            }
+            selected_face = (
+                st.session_state[
+                    "selected_face"
+                ]
+            )
 
-            # -----------------------------------------------
-            # IMPORTANT FIX
-            #
-            # Preserve the latest selected image before
-            # resetting the temporary selection state.
-            # -----------------------------------------------
-
-            st.session_state[
-                "latest_selected_image_path"
-            ] = (
+            selected_image_path = (
                 st.session_state[
                     "selected_image_path"
                 ]
             )
+
+            round_number = current_round
+
+            # -----------------------------------------------
+            # SAVE ROUND TO SQLITE
+            # -----------------------------------------------
+
+            save_round(
+                session_id=st.session_state[
+                    "session_id"
+                ],
+                round_number=round_number,
+                selected_face=selected_face,
+                selected_image_path=selected_image_path,
+                confidence=confidence,
+                guidance=guidance,
+            )
+
+            # -----------------------------------------------
+            # Preserve latest selected image
+            # -----------------------------------------------
+
+            st.session_state[
+                "latest_selected_image_path"
+            ] = selected_image_path
+
+            # -----------------------------------------------
+            # Also keep temporary round information
+            # for compatibility with the Phase 9 UI.
+            # -----------------------------------------------
+
+            st.session_state[
+                f"round_{round_number}"
+            ] = {
+                "selected_face": selected_face,
+                "selected_image_path": selected_image_path,
+                "confidence": confidence,
+                "guidance": guidance,
+            }
 
             # -----------------------------------------------
             # Move to next round
