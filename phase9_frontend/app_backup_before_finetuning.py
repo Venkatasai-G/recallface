@@ -2,7 +2,13 @@ from pathlib import Path
 
 import sys
 
+
+
 import streamlit as st
+
+
+
+
 
 # ============================================================
 
@@ -10,17 +16,27 @@ import streamlit as st
 
 # ============================================================
 
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 
 if str(PROJECT_ROOT) not in sys.path:
 
     sys.path.insert(0, str(PROJECT_ROOT))
+
+
+
+
 
 # ============================================================
 
 # PHASE 10 BACKEND
 
 # ============================================================
+
+
 
 from phase10_backend.database import (
 
@@ -29,6 +45,8 @@ from phase10_backend.database import (
     migrate_database,
 
 )
+
+
 
 from phase10_backend.session_manager import (
 
@@ -44,13 +62,25 @@ from phase10_backend.session_manager import (
 
 )
 
+
+
+
+
+
+
 from phase11_integration.navigation_engine import NavigationEngine
+
+
+
+
 
 # ============================================================
 
 # PAGE CONFIGURATION
 
 # ============================================================
+
+
 
 st.set_page_config(
 
@@ -62,21 +92,33 @@ st.set_page_config(
 
 )
 
+
+
+
+
 # ============================================================
 
 # DATABASE INITIALIZATION
 
 # ============================================================
 
+
+
 initialize_database()
 
 migrate_database()
+
+
+
+
 
 # ============================================================
 
 # PROJECT PATHS
 
 # ============================================================
+
+
 
 STARTER_IMAGE_DIR = (
 
@@ -90,6 +132,8 @@ STARTER_IMAGE_DIR = (
 
 )
 
+
+
 STARTER_LATENT_PATH = (
 
     PROJECT_ROOT
@@ -102,6 +146,8 @@ STARTER_LATENT_PATH = (
 
 )
 
+
+
 GENERATED_CANDIDATE_DIR = (
 
     PROJECT_ROOT
@@ -112,7 +158,11 @@ GENERATED_CANDIDATE_DIR = (
 
 )
 
+
+
 MAX_ROUNDS = 5
+
+
 
 # ============================================================
 
@@ -120,9 +170,13 @@ MAX_ROUNDS = 5
 
 # ============================================================
 
+
+
 try:
 
     import torch
+
+
 
     PHASE11_GPU_AVAILABLE = torch.cuda.is_available()
 
@@ -130,92 +184,123 @@ except Exception:
 
     PHASE11_GPU_AVAILABLE = False
 
+
+
 # ============================================================
 
 # SESSION STATE INITIALIZATION
 
 # ============================================================
 
+
+
 if "session_started" not in st.session_state:
 
     st.session_state["session_started"] = False
+
+
 
 if "session_id" not in st.session_state:
 
     st.session_state["session_id"] = None
 
+
+
 if "selected_face" not in st.session_state:
 
     st.session_state["selected_face"] = None
+
+
 
 if "selected_image_path" not in st.session_state:
 
     st.session_state["selected_image_path"] = None
 
+
+
 if "latest_selected_image_path" not in st.session_state:
 
     st.session_state["latest_selected_image_path"] = None
+
+
 
 if "current_round" not in st.session_state:
 
     st.session_state["current_round"] = 1
 
+
+
 if "fine_tuning" not in st.session_state:
 
     st.session_state["fine_tuning"] = False
+
+
 
 if "show_final_output" not in st.session_state:
 
     st.session_state["show_final_output"] = False
 
+
+
 if "final_image_path" not in st.session_state:
 
     st.session_state["final_image_path"] = None
+
+
 
 if "fine_tuning_values" not in st.session_state:
 
     st.session_state["fine_tuning_values"] = {}
 
+
+
 if "fine_tuning_complete" not in st.session_state:
 
     st.session_state["fine_tuning_complete"] = False
 
-if "fine_tuning_strength" not in st.session_state:
-    st.session_state["fine_tuning_strength"] = 0.0
 
-if "fine_tuning_preview_latent" not in st.session_state:
-    st.session_state["fine_tuning_preview_latent"] = None
-
-if "fine_tuning_preview_image_path" not in st.session_state:
-    st.session_state["fine_tuning_preview_image_path"] = None
 
 if "current_latent" not in st.session_state:
 
     st.session_state["current_latent"] = None
 
+
+
 if "candidate_latents" not in st.session_state:
 
     st.session_state["candidate_latents"] = None
+
+
 
 if "candidate_images" not in st.session_state:
 
     st.session_state["candidate_images"] = None
 
+
+
 if "candidate_image_paths" not in st.session_state:
 
     st.session_state["candidate_image_paths"] = []
+
+
 
 if "navigation_engine" not in st.session_state:
 
     st.session_state["navigation_engine"] = None
 
+
+
 current_round = st.session_state["current_round"]
+
+
 
 # ============================================================
 
 # PHASE 11 NAVIGATION ENGINE
 
 # ============================================================
+
+
 
 if (
 
@@ -247,11 +332,15 @@ if (
 
         )
 
+
+
 # ============================================================
 
 # HELPER FUNCTIONS
 
 # ============================================================
+
+
 
 def reset_session():
 
@@ -260,6 +349,8 @@ def reset_session():
     Reset the current Streamlit session state.
 
     """
+
+
 
     keys_to_reset = [
 
@@ -285,10 +376,7 @@ def reset_session():
 
         "fine_tuning_complete",
 
-        "fine_tuning_strength",
-        "fine_tuning_preview_latent",
-        "fine_tuning_preview_image_path",
-"current_latent",
+        "current_latent",
 
         "candidate_latents",
 
@@ -298,15 +386,23 @@ def reset_session():
 
     ]
 
+
+
     for key in keys_to_reset:
+
+
 
         if key == "session_started":
 
             st.session_state[key] = False
 
+
+
         elif key == "current_round":
 
             st.session_state[key] = 1
+
+
 
         elif key in [
 
@@ -324,13 +420,19 @@ def reset_session():
 
             st.session_state[key] = None
 
+
+
         elif key == "fine_tuning_values":
 
             st.session_state[key] = {}
 
+
+
         elif key == "candidate_image_paths":
 
             st.session_state[key] = []
+
+
 
         elif key in [
 
@@ -344,9 +446,13 @@ def reset_session():
 
             st.session_state[key] = None
 
+
+
         else:
 
             st.session_state[key] = False
+
+
 
 def get_starter_images():
 
@@ -356,9 +462,13 @@ def get_starter_images():
 
     """
 
+
+
     if not STARTER_IMAGE_DIR.exists():
 
         return []
+
+
 
     image_paths = sorted(
 
@@ -370,7 +480,11 @@ def get_starter_images():
 
     )
 
+
+
     return image_paths
+
+
 
 def get_starter_latents():
 
@@ -380,11 +494,17 @@ def get_starter_latents():
 
     """
 
+
+
     if not STARTER_LATENT_PATH.exists():
 
         return None
 
+
+
     import torch
+
+
 
     latents = torch.load(
 
@@ -396,15 +516,23 @@ def get_starter_latents():
 
     )
 
+
+
     if not isinstance(latents, torch.Tensor):
 
         return None
+
+
 
     if latents.shape != (12, 512):
 
         return None
 
+
+
     return latents
+
+
 
 def get_starter_latent(face_number):
 
@@ -414,23 +542,35 @@ def get_starter_latent(face_number):
 
     """
 
+
+
     latents = get_starter_latents()
+
+
 
     if latents is None:
 
         return None
 
+
+
     if not 1 <= face_number <= len(latents):
 
         return None
 
+
+
     return latents[face_number - 1].clone()
+
+
 
 def generate_phase11_candidates():
 
     """
 
     Generate candidates using the Phase 11 NavigationEngine.
+
+
 
     Returns:
 
@@ -442,23 +582,33 @@ def generate_phase11_candidates():
 
     """
 
+
+
     engine = st.session_state.get("navigation_engine")
 
     current_latent = st.session_state.get("current_latent")
 
     round_number = st.session_state.get("current_round")
 
+
+
     if engine is None:
 
         return None, None
+
+
 
     if current_latent is None:
 
         return None, None
 
+
+
     if round_number is None or round_number <= 1:
 
         return None, None
+
+
 
     candidate_latents, candidate_images = engine.generate_round(
 
@@ -468,7 +618,11 @@ def generate_phase11_candidates():
 
     )
 
+
+
     return candidate_latents, candidate_images
+
+
 
 def save_candidate_images(candidate_images, round_number):
 
@@ -476,21 +630,31 @@ def save_candidate_images(candidate_images, round_number):
 
     Save Phase 11 generated candidate images as PNG files.
 
+
+
     Returns:
 
         list[Path]: Paths to the saved candidate images.
 
     """
 
+
+
     if candidate_images is None:
 
         return []
 
+
+
     session_id = st.session_state.get("session_id")
+
+
 
     if not session_id:
 
         return []
+
+
 
     round_dir = (
 
@@ -502,6 +666,8 @@ def save_candidate_images(candidate_images, round_number):
 
     )
 
+
+
     round_dir.mkdir(
 
         parents=True,
@@ -510,11 +676,17 @@ def save_candidate_images(candidate_images, round_number):
 
     )
 
+
+
     image_paths = []
+
+
 
     from PIL import Image
 
     import numpy as np
+
+
 
     for index, image_array in enumerate(candidate_images):
 
@@ -526,6 +698,8 @@ def save_candidate_images(candidate_images, round_number):
 
         )
 
+
+
         image = Image.fromarray(
 
             image_array,
@@ -533,6 +707,8 @@ def save_candidate_images(candidate_images, round_number):
             mode="RGB",
 
         )
+
+
 
         image_path = (
 
@@ -542,11 +718,19 @@ def save_candidate_images(candidate_images, round_number):
 
         )
 
+
+
         image.save(image_path)
+
+
 
         image_paths.append(image_path)
 
+
+
     return image_paths
+
+
 
 def get_round_images(round_number):
 
@@ -554,9 +738,13 @@ def get_round_images(round_number):
 
     Return candidate images for the current round.
 
+
+
     Round 1:
 
         Use the permanent Phase 2 starter set.
+
+
 
     Later rounds:
 
@@ -568,11 +756,17 @@ def get_round_images(round_number):
 
     """
 
+
+
     starter_images = get_starter_images()
+
+
 
     if round_number == 1:
 
         return starter_images
+
+
 
      # Reuse candidates already generated for this round.
 
@@ -581,6 +775,8 @@ def get_round_images(round_number):
         "candidate_image_paths"
 
     )
+
+
 
     if existing_paths:
 
@@ -594,15 +790,21 @@ def get_round_images(round_number):
 
         ]
 
+
+
         if existing_paths:
 
             return existing_paths
+
+
 
     # --------------------------------------------------------
 
     # Phase 11 real candidate generation
 
     # --------------------------------------------------------
+
+
 
     if PHASE11_GPU_AVAILABLE:
 
@@ -613,6 +815,8 @@ def get_round_images(round_number):
                 generate_phase11_candidates()
 
             )
+
+
 
             if (
 
@@ -628,11 +832,15 @@ def get_round_images(round_number):
 
                 ] = candidate_latents
 
+
+
                 st.session_state[
 
                     "candidate_images"
 
                 ] = candidate_images
+
+
 
                 candidate_image_paths = save_candidate_images(
 
@@ -642,13 +850,19 @@ def get_round_images(round_number):
 
                 )
 
+
+
                 st.session_state[
 
                     "candidate_image_paths"
 
                 ] = candidate_image_paths
 
+
+
                 return candidate_image_paths
+
+
 
         except Exception as e:
 
@@ -658,13 +872,19 @@ def get_round_images(round_number):
 
             )
 
+
+
     # --------------------------------------------------------
 
     # CPU/local development fallback
 
     # --------------------------------------------------------
 
+
+
     return list(reversed(starter_images))
+
+
 
 def get_saved_rounds():
 
@@ -674,13 +894,21 @@ def get_saved_rounds():
 
     """
 
+
+
     session_id = st.session_state.get("session_id")
+
+
 
     if not session_id:
 
         return []
 
+
+
     return get_session_rounds(session_id)
+
+
 
 def finalize_current_session():
 
@@ -690,11 +918,17 @@ def finalize_current_session():
 
     """
 
+
+
     session_id = st.session_state.get("session_id")
+
+
 
     if session_id:
 
         finalize_session(session_id)
+
+
 
 # ============================================================
 
@@ -702,15 +936,23 @@ def finalize_current_session():
 
 # ============================================================
 
+
+
 if not st.session_state["session_started"]:
 
+
+
     st.title("👤 RecallFace")
+
+
 
     st.subheader(
 
         "Interactive AI-Assisted Facial Composite Generation"
 
     )
+
+
 
     st.write(
 
@@ -726,7 +968,11 @@ if not st.session_state["session_started"]:
 
     )
 
+
+
     st.markdown("### How it works")
+
+
 
     st.markdown(
 
@@ -752,6 +998,8 @@ if not st.session_state["session_started"]:
 
     )
 
+
+
     st.info(
 
         """
@@ -768,6 +1016,8 @@ if not st.session_state["session_started"]:
 
     )
 
+
+
     if st.button(
 
         "🚀 Start Session",
@@ -778,13 +1028,19 @@ if not st.session_state["session_started"]:
 
     ):
 
+
+
         # ----------------------------------------------------
 
         # CREATE DATABASE SESSION
 
         # ----------------------------------------------------
 
+
+
         session_id = create_session()
+
+
 
         st.session_state["session_id"] = session_id
 
@@ -816,332 +1072,391 @@ if not st.session_state["session_started"]:
 
         st.session_state["candidate_image_paths"] = []
 
+
+
         st.rerun()
+
+
+
+
 
 # ============================================================
 
 # FINE-TUNING VIEW
+
 # ============================================================
+
+
 
 elif st.session_state["fine_tuning"]:
 
+
+
     st.title("🎛️ Fine-tune Face")
 
-    st.info(
-        """
-        Fine-tuning uses the trained Phase 7 Projector and the
-        existing Phase 6 DiffAE decoder.
 
-        The control below adjusts the strength and direction of the
-        learned latent movement. It is a learned latent-direction
-        refinement control, not a semantic Age/Hair/Smile/Eyes editor,
-        because the trained Projector does not define separate
-        semantic axes for those attributes.
+
+    st.info(
+
         """
+
+        The fine-tuning controls are currently simulated for Phase 9.
+
+        In Phase 11, these controls will call the trained Projector
+
+        directly on individual feature axes.
+
+        """
+
     )
 
-    engine = st.session_state.get("navigation_engine")
-    current_latent = st.session_state.get("current_latent")
 
-    if engine is None:
-        st.error(
-            "The Phase 11 NavigationEngine is not available. "
-            "Fine-tuning requires the CUDA-enabled Phase 11 environment."
+
+    st.markdown("### Adjust individual facial features")
+
+
+
+    col1, col2 = st.columns(2)
+
+
+
+    with col1:
+
+
+
+        age = st.slider(
+
+            "Age",
+
+            min_value=-5,
+
+            max_value=5,
+
+            value=0,
+
+            step=1,
+
         )
 
-    elif current_latent is None:
-        st.error(
-            "No selected latent is available for fine-tuning. "
-            "Please select a face first."
+
+
+        hair = st.slider(
+
+            "Hair",
+
+            min_value=-5,
+
+            max_value=5,
+
+            value=0,
+
+            step=1,
+
         )
 
-    else:
-        st.markdown("### Learned latent-direction refinement")
 
-        strength = st.slider(
-            "Learned Direction Strength",
-            min_value=-2.0,
-            max_value=2.0,
-            value=float(st.session_state.get(
-                "fine_tuning_strength", 0.0
-            )),
-            step=0.1,
-            help=(
-                "Positive values move along the learned Projector "
-                "direction. Negative values move in the opposite "
-                "direction."
-            ),
-            key="fine_tuning_strength",
+
+        face_shape = st.slider(
+
+            "Face Shape",
+
+            min_value=-5,
+
+            max_value=5,
+
+            value=0,
+
+            step=1,
+
         )
 
-        st.caption(
-            "0.0 keeps the current latent unchanged. "
-            "Positive and negative values explore opposite directions."
+
+
+    with col2:
+
+
+
+        smile = st.slider(
+
+            "Smile",
+
+            min_value=-5,
+
+            max_value=5,
+
+            value=0,
+
+            step=1,
+
         )
 
-        current_image = (
-            st.session_state.get("latest_selected_image_path")
-            or st.session_state.get("selected_image_path")
+
+
+        eyes = st.slider(
+
+            "Eyes",
+
+            min_value=-5,
+
+            max_value=5,
+
+            value=0,
+
+            step=1,
+
         )
 
-        col1, col2 = st.columns(2)
 
-        with col1:
+
+    st.markdown("---")
+
+
+
+    # ========================================================
+
+    # CURRENT COMPOSITE
+
+    # ========================================================
+
+
+
+    current_image = (
+
+        st.session_state.get(
+
+            "latest_selected_image_path"
+
+        )
+
+        or st.session_state.get(
+
+            "selected_image_path"
+
+        )
+
+    )
+
+
+
+    if current_image:
+
+
+
+        current_image_path = Path(current_image)
+
+
+
+        if current_image_path.exists():
+
+
+
             st.markdown("### Current Composite")
 
-            if current_image and Path(current_image).exists():
-                st.image(
-                    str(current_image),
-                    caption="Current selected face",
-                    width=350,
-                )
-            else:
-                st.warning(
-                    "The current selected image could not be found."
-                )
 
-        with col2:
-            st.markdown("### Fine-tuned Preview")
 
-            preview_path = st.session_state.get(
-                "fine_tuning_preview_image_path"
+            st.image(
+
+                str(current_image_path),
+
+                caption="Current selected face",
+
+                width=350,
+
             )
 
-            if preview_path and Path(preview_path).exists():
-                st.image(
-                    str(preview_path),
-                    caption="Fine-tuned preview",
-                    width=350,
-                )
-            else:
-                st.caption(
-                    "No preview generated yet. "
-                    "Choose a strength and click Generate Preview."
-                )
 
-        st.markdown("---")
+
+        else:
+
+
+
+            st.warning(
+
+                "The selected image could not be found."
+
+            )
+
+
+
+    # ========================================================
+
+    # BUTTONS
+
+    # ========================================================
+
+
+
+    col1, col2, col3 = st.columns(3)
+
+
+
+    with col1:
+
+
 
         if st.button(
-            "🔄 Generate Fine-tuned Preview",
+
+            "Apply Fine-tuning",
+
             type="primary",
+
             use_container_width=True,
+
         ):
 
-            try:
-                import numpy as np
-                from PIL import Image
 
-                base_latent = current_latent.detach().float()
 
-                if base_latent.ndim == 1:
-                    base_latent = base_latent.unsqueeze(0)
+            st.session_state[
 
-                if tuple(base_latent.shape) != (1, 512):
-                    raise ValueError(
-                        "Expected current latent shape (512,) or (1, 512), "
-                        f"got {tuple(base_latent.shape)}."
-                    )
+                "fine_tuning_values"
 
-                base_latent = base_latent.to(engine.device)
+            ] = {
 
-                # Use the actual trained Phase 7 Projector.
-                with torch.no_grad():
-                    direction = engine.projector(base_latent)
+                "age": age,
 
-                    if tuple(direction.shape) != (1, 512):
-                        raise ValueError(
-                            "Projector returned an unexpected shape: "
-                            f"{tuple(direction.shape)}"
-                        )
+                "hair": hair,
 
-                    preview_latent = (
-                        base_latent
-                        + float(strength) * direction
-                    )
+                "face_shape": face_shape,
 
-                    # Use the same safety clamp as Phase 11.
-                    preview_latent = engine.clamp_latents(
-                        preview_latent
-                    )
+                "smile": smile,
 
-                # Use the existing Phase 6 DiffAE decoder.
-                preview_images = engine.candidate_generator.generate(
-                    preview_latent.detach().cpu().numpy()
+                "eyes": eyes,
+
+            }
+
+
+
+            st.success(
+
+                "Fine-tuning values applied."
+
+            )
+
+
+
+    with col2:
+
+
+
+        if st.button(
+
+            "Finalize Face",
+
+            use_container_width=True,
+
+        ):
+
+
+
+            final_path = (
+
+                st.session_state.get(
+
+                    "latest_selected_image_path"
+
                 )
 
-                if not preview_images:
-                    raise RuntimeError(
-                        "DiffAE did not return a preview image."
-                    )
+                or st.session_state.get(
 
-                preview_image = np.asarray(
-                    preview_images[0],
-                    dtype=np.uint8,
+                    "selected_image_path"
+
                 )
 
-                session_id = st.session_state.get("session_id")
+            )
 
-                if not session_id:
-                    raise RuntimeError(
-                        "No active session ID is available."
-                    )
 
-                preview_dir = (
-                    GENERATED_CANDIDATE_DIR
-                    / str(session_id)
-                    / "fine_tuning"
-                )
 
-                preview_dir.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
+            st.session_state[
 
-                preview_path = (
-                    preview_dir
-                    / "fine_tuned_preview.png"
-                )
+                "final_image_path"
 
-                Image.fromarray(
-                    preview_image,
-                    mode="RGB",
-                ).save(preview_path)
+            ] = final_path
 
-                # Preview remains separate until Apply is clicked.
-                st.session_state[
-                    "fine_tuning_preview_latent"
-                ] = preview_latent.detach().cpu().clone()
 
-                st.session_state[
-                    "fine_tuning_preview_image_path"
-                ] = str(preview_path)
 
-                st.session_state[
-                    "fine_tuning_values"
-                ] = {
-                    "learned_direction_strength": float(strength),
-                }
+            st.session_state[
 
-                st.success(
-                    "A new face was generated using the trained "
-                    "Projector and DiffAE."
-                )
+                "fine_tuning_complete"
 
-                st.rerun()
+            ] = True
 
-            except Exception as e:
-                st.error(
-                    f"Fine-tuning preview generation failed: {e}"
-                )
 
-        st.markdown("---")
 
-        col1, col2, col3 = st.columns(3)
+            # ------------------------------------------------
 
-        with col1:
-            if st.button(
-                "✅ Apply Fine-tuning",
-                type="primary",
-                use_container_width=True,
-            ):
+            # COMPLETE DATABASE SESSION
 
-                preview_latent = st.session_state.get(
-                    "fine_tuning_preview_latent"
-                )
-                preview_path = st.session_state.get(
-                    "fine_tuning_preview_image_path"
-                )
+            # ------------------------------------------------
 
-                if (
-                    preview_latent is None
-                    or not preview_path
-                    or not Path(preview_path).exists()
-                ):
-                    st.warning(
-                        "Generate a fine-tuned preview before applying it."
-                    )
-                else:
-                    st.session_state[
-                        "current_latent"
-                    ] = preview_latent.detach().cpu().clone()
 
-                    st.session_state[
-                        "latest_selected_image_path"
-                    ] = preview_path
 
-                    st.session_state[
-                        "selected_image_path"
-                    ] = preview_path
+            finalize_current_session()
 
-                    st.session_state[
-                        "fine_tuning_complete"
-                    ] = True
 
-                    st.success(
-                        "Fine-tuned face applied successfully."
-                    )
 
-                    st.rerun()
+            st.session_state[
 
-        with col2:
-            if st.button(
-                "Finalize Face",
-                use_container_width=True,
-            ):
+                "fine_tuning"
 
-                final_path = (
-                    st.session_state.get(
-                        "latest_selected_image_path"
-                    )
-                    or st.session_state.get(
-                        "selected_image_path"
-                    )
-                )
+            ] = False
 
-                if not final_path or not Path(final_path).exists():
-                    st.warning(
-                        "No valid final image is available."
-                    )
-                else:
-                    st.session_state[
-                        "final_image_path"
-                    ] = final_path
 
-                    st.session_state[
-                        "fine_tuning_complete"
-                    ] = True
 
-                    finalize_current_session()
+            st.session_state[
 
-                    st.session_state[
-                        "fine_tuning"
-                    ] = False
+                "show_final_output"
 
-                    st.session_state[
-                        "show_final_output"
-                    ] = True
+            ] = True
 
-                    st.rerun()
 
-        with col3:
-            if st.button(
-                "← Back to Session Review",
-                use_container_width=True,
-            ):
-                st.session_state[
-                    "fine_tuning"
-                ] = False
 
-                st.rerun()
+            st.rerun()
 
+
+
+    with col3:
+
+
+
+        if st.button(
+
+            "← Back to Session Review",
+
+            use_container_width=True,
+
+        ):
+
+
+
+            st.session_state[
+
+                "fine_tuning"
+
+            ] = False
+
+
+
+            st.rerun()
+
+
+
+
+
+# ============================================================
 
 # FINAL OUTPUT PAGE
 
 # ============================================================
 
+
+
 elif st.session_state["show_final_output"]:
 
+
+
     st.title("Final Composite")
+
+
 
     st.success(
 
@@ -1149,11 +1464,15 @@ elif st.session_state["show_final_output"]:
 
     )
 
+
+
     final_image = st.session_state.get(
 
         "final_image_path"
 
     )
+
+
 
     # ========================================================
 
@@ -1161,13 +1480,23 @@ elif st.session_state["show_final_output"]:
 
     # ========================================================
 
+
+
     if final_image:
+
+
 
         final_image_path = Path(final_image)
 
+
+
         if final_image_path.exists():
 
+
+
             st.markdown("### Final Face")
+
+
 
             st.image(
 
@@ -1179,13 +1508,19 @@ elif st.session_state["show_final_output"]:
 
             )
 
+
+
             # ------------------------------------------------
 
             # DOWNLOAD PNG
 
             # ------------------------------------------------
 
+
+
             try:
+
+
 
                 with open(
 
@@ -1195,7 +1530,11 @@ elif st.session_state["show_final_output"]:
 
                 ) as image_file:
 
+
+
                     image_bytes = image_file.read()
+
+
 
                 st.download_button(
 
@@ -1211,7 +1550,11 @@ elif st.session_state["show_final_output"]:
 
                 )
 
+
+
             except Exception as e:
+
+
 
                 st.error(
 
@@ -1219,7 +1562,11 @@ elif st.session_state["show_final_output"]:
 
                 )
 
+
+
         else:
+
+
 
             st.warning(
 
@@ -1227,7 +1574,11 @@ elif st.session_state["show_final_output"]:
 
             )
 
+
+
     else:
+
+
 
         st.warning(
 
@@ -1235,13 +1586,19 @@ elif st.session_state["show_final_output"]:
 
         )
 
+
+
     st.markdown("---")
+
+
 
     # ========================================================
 
     # START NEW SESSION
 
     # ========================================================
+
+
 
     if st.button(
 
@@ -1251,9 +1608,17 @@ elif st.session_state["show_final_output"]:
 
     ):
 
+
+
         reset_session()
 
+
+
         st.rerun()
+
+
+
+
 
 # ============================================================
 
@@ -1261,7 +1626,11 @@ elif st.session_state["show_final_output"]:
 
 # ============================================================
 
+
+
 else:
+
+
 
     # ========================================================
 
@@ -1269,9 +1638,15 @@ else:
 
     # ========================================================
 
+
+
     if current_round > MAX_ROUNDS:
 
+
+
         st.title("Session Review")
+
+
 
         st.warning(
 
@@ -1289,11 +1664,15 @@ else:
 
         )
 
+
+
         # ====================================================
 
         # DATABASE SESSION INFORMATION
 
         # ====================================================
+
+
 
         session_id = st.session_state.get(
 
@@ -1301,7 +1680,11 @@ else:
 
         )
 
+
+
         if session_id:
+
+
 
             session_data = get_session(
 
@@ -1309,7 +1692,11 @@ else:
 
             )
 
+
+
             if session_data:
+
+
 
                 st.caption(
 
@@ -1317,11 +1704,15 @@ else:
 
                 )
 
+
+
                 st.caption(
 
                     f"Status: {session_data['status']}"
 
                 )
+
+
 
         st.markdown(
 
@@ -1329,7 +1720,11 @@ else:
 
         )
 
+
+
         col1, col2, col3 = st.columns(3)
+
+
 
         # ====================================================
 
@@ -1337,7 +1732,11 @@ else:
 
         # ====================================================
 
+
+
         with col1:
+
+
 
             if st.button(
 
@@ -1348,6 +1747,8 @@ else:
                 use_container_width=True,
 
             ):
+
+
 
                 final_path = (
 
@@ -1365,15 +1766,21 @@ else:
 
                 )
 
+
+
                 st.session_state[
 
                     "final_image_path"
 
                 ] = final_path
 
+
+
                 # Complete database session
 
                 finalize_current_session()
+
+
 
                 st.session_state[
 
@@ -1381,7 +1788,11 @@ else:
 
                 ] = True
 
+
+
                 st.rerun()
+
+
 
         # ====================================================
 
@@ -1389,7 +1800,11 @@ else:
 
         # ====================================================
 
+
+
         with col2:
+
+
 
             if st.button(
 
@@ -1399,9 +1814,15 @@ else:
 
             ):
 
+
+
                 reset_session()
 
+
+
                 st.rerun()
+
+
 
         # ====================================================
 
@@ -1409,7 +1830,11 @@ else:
 
         # ====================================================
 
+
+
         with col3:
+
+
 
             if st.button(
 
@@ -1419,15 +1844,23 @@ else:
 
             ):
 
+
+
                 st.session_state[
 
                     "fine_tuning"
 
                 ] = True
 
+
+
                 st.rerun()
 
+
+
         st.stop()
+
+
 
     # ========================================================
 
@@ -1435,13 +1868,19 @@ else:
 
     # ========================================================
 
+
+
     st.title("RecallFace")
+
+
 
     st.subheader(
 
         f"Round {current_round}"
 
     )
+
+
 
     st.write(
 
@@ -1455,11 +1894,15 @@ else:
 
     )
 
+
+
     # ========================================================
 
     # SESSION INFORMATION
 
     # ========================================================
+
+
 
     session_id = st.session_state.get(
 
@@ -1467,7 +1910,11 @@ else:
 
     )
 
+
+
     if session_id:
+
+
 
         st.caption(
 
@@ -1475,15 +1922,23 @@ else:
 
         )
 
+
+
     # ========================================================
 
     # HISTORY STRIP
 
     # ========================================================
 
+
+
     saved_rounds = get_saved_rounds()
 
+
+
     if saved_rounds:
+
+
 
         st.markdown(
 
@@ -1491,11 +1946,15 @@ else:
 
         )
 
+
+
         history_columns = st.columns(
 
             min(len(saved_rounds), 5)
 
         )
+
+
 
         for position, round_data in enumerate(
 
@@ -1503,11 +1962,15 @@ else:
 
         ):
 
+
+
             column = history_columns[
 
                 position % len(history_columns)
 
             ]
+
+
 
             image_path = round_data.get(
 
@@ -1515,11 +1978,15 @@ else:
 
             )
 
+
+
             selected_face = round_data.get(
 
                 "selected_face"
 
             )
+
+
 
             round_number = round_data.get(
 
@@ -1527,7 +1994,11 @@ else:
 
             )
 
+
+
             with column:
+
+
 
                 if (
 
@@ -1536,6 +2007,8 @@ else:
                     and Path(image_path).exists()
 
                 ):
+
+
 
                     st.image(
 
@@ -1553,7 +2026,11 @@ else:
 
                     )
 
+
+
                 else:
+
+
 
                     st.caption(
 
@@ -1561,7 +2038,11 @@ else:
 
                     )
 
+
+
         st.markdown("---")
+
+
 
     # ========================================================
 
@@ -1569,7 +2050,11 @@ else:
 
     # ========================================================
 
+
+
     if current_round == 1:
+
+
 
         st.info(
 
@@ -1577,7 +2062,11 @@ else:
 
         )
 
+
+
     else:
+
+
 
         st.info(
 
@@ -1595,11 +2084,15 @@ else:
 
         )
 
+
+
     # ========================================================
 
     # GET CANDIDATE IMAGES
 
     # ========================================================
+
+
 
     image_paths = get_round_images(
 
@@ -1607,7 +2100,11 @@ else:
 
     )
 
+
+
     if not image_paths:
+
+
 
         st.error(
 
@@ -1615,7 +2112,11 @@ else:
 
             No starter images were found.
 
+
+
             Expected directory:
+
+
 
             {STARTER_IMAGE_DIR}
 
@@ -1623,7 +2124,11 @@ else:
 
         )
 
+
+
         st.stop()
+
+
 
     # ========================================================
 
@@ -1631,13 +2136,19 @@ else:
 
     # ========================================================
 
+
+
     st.markdown(
 
         "### Select the closest-looking face"
 
     )
 
+
+
     columns = st.columns(4)
+
+
 
     for index, image_path in enumerate(
 
@@ -1645,13 +2156,19 @@ else:
 
     ):
 
+
+
         column = columns[
 
             index % 4
 
         ]
 
+
+
         with column:
+
+
 
             st.image(
 
@@ -1661,7 +2178,11 @@ else:
 
             )
 
+
+
             face_number = index + 1
+
+
 
             if st.button(
 
@@ -1687,45 +2208,36 @@ else:
 
                 ] = face_number
 
+
+
                 st.session_state["selected_image_path"] = str(image_path)
 
                 # Store the latent corresponding to the selected candidate.
-
                 if current_round == 1:
-
                     # Round 1 uses the permanent Phase 2 starter set.
-
                     selected_latent = get_starter_latent(face_number)
 
                     if selected_latent is not None:
-
                         st.session_state["current_latent"] = selected_latent
 
                 else:
-
                     # Later rounds use candidates generated by the Phase 11
-
                     # NavigationEngine. The selected candidate becomes the
-
                     # starting latent for the next round.
-
                     candidate_latents = st.session_state.get("candidate_latents")
 
                     if candidate_latents is not None:
-
                         selected_index = face_number - 1
 
                         if 0 <= selected_index < len(candidate_latents):
-
                             selected_latent = candidate_latents[selected_index]
-
                             st.session_state["current_latent"] = (
-
                                 selected_latent.detach().cpu().clone()
-
                             )
 
                 st.rerun()
+
+
 
     # ========================================================
 
@@ -1733,13 +2245,19 @@ else:
 
     # ========================================================
 
+
+
     if st.session_state[
 
         "selected_face"
 
     ]:
 
+
+
         st.markdown("---")
+
+
 
         st.success(
 
@@ -1753,6 +2271,8 @@ else:
 
         )
 
+
+
         selected_path = (
 
             st.session_state[
@@ -1763,11 +2283,15 @@ else:
 
         )
 
+
+
         # ====================================================
 
         # SELECTED IMAGE
 
         # ====================================================
+
+
 
         if (
 
@@ -1777,11 +2301,15 @@ else:
 
         ):
 
+
+
             st.markdown(
 
                 "### Selected Face"
 
             )
+
+
 
             st.image(
 
@@ -1791,11 +2319,15 @@ else:
 
             )
 
+
+
         # ====================================================
 
         # CONFIDENCE
 
         # ====================================================
+
+
 
         confidence = st.slider(
 
@@ -1813,11 +2345,15 @@ else:
 
         )
 
+
+
         # ====================================================
 
         # GUIDANCE
 
         # ====================================================
+
+
 
         guidance = st.text_area(
 
@@ -1833,11 +2369,15 @@ else:
 
         )
 
+
+
         # ====================================================
 
         # CONTINUE
 
         # ====================================================
+
+
 
         if st.button(
 
@@ -1849,11 +2389,15 @@ else:
 
         ):
 
+
+
             # -----------------------------------------------
 
             # Get current values BEFORE clearing state
 
             # -----------------------------------------------
+
+
 
             selected_face = (
 
@@ -1865,6 +2409,8 @@ else:
 
             )
 
+
+
             selected_image_path = (
 
                 st.session_state[
@@ -1875,13 +2421,19 @@ else:
 
             )
 
+
+
             round_number = current_round
+
+
 
             # -----------------------------------------------
 
             # SAVE ROUND TO SQLITE
 
             # -----------------------------------------------
+
+
 
             save_round(
 
@@ -1903,17 +2455,23 @@ else:
 
             )
 
+
+
             # -----------------------------------------------
 
             # Preserve latest selected image
 
             # -----------------------------------------------
 
+
+
             st.session_state[
 
                 "latest_selected_image_path"
 
             ] = selected_image_path
+
+
 
             # -----------------------------------------------
 
@@ -1922,6 +2480,8 @@ else:
             # for compatibility with the Phase 9 UI.
 
             # -----------------------------------------------
+
+
 
             st.session_state[
 
@@ -1939,11 +2499,15 @@ else:
 
             }
 
+
+
             # -----------------------------------------------
 
             # Move to next round
 
             # -----------------------------------------------
+
+
 
             st.session_state[
 
@@ -1951,11 +2515,15 @@ else:
 
             ] += 1
 
+
+
             # -----------------------------------------------
 
             # Reset temporary selection
 
             # -----------------------------------------------
+
+
 
             st.session_state[
 
@@ -1963,11 +2531,15 @@ else:
 
             ] = None
 
+
+
             st.session_state[
 
                 "selected_image_path"
 
             ] = None
+
+
 
             st.session_state[
 
@@ -1975,16 +2547,22 @@ else:
 
             ] = None
 
+
+
             st.session_state[
 
                 "candidate_images"
 
             ] = None
 
+
+
             st.session_state[
 
                 "candidate_image_paths"
 
             ] = []
+
+
 
             st.rerun()
