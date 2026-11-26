@@ -1810,15 +1810,23 @@ else:
 
         # ====================================================
 
-        if st.button(
+        continue_col, stop_col = st.columns(2)
 
-            "Continue to Next Round →",
+        with continue_col:
+            continue_clicked = st.button(
+                "Continue to Next Round →",
+                type="primary",
+                use_container_width=False,
+            )
 
-            type="primary",
+        with stop_col:
+            stop_clicked = st.button(
+                "🛑 Stop & Finalize Face",
+                key=f"stop_finalize_{current_round}",
+                use_container_width=False,
+            )
 
-            use_container_width=False,
-
-        ):
+        if continue_clicked or stop_clicked:
 
             # -----------------------------------------------
 
@@ -1909,6 +1917,13 @@ else:
                 "guidance": guidance,
 
             }
+
+            # Stop early and use the current selected face as the final composite.
+            if stop_clicked:
+                st.session_state["final_image_path"] = selected_image_path
+                finalize_current_session()
+                st.session_state["show_final_output"] = True
+                st.rerun()
 
             # -----------------------------------------------
 
