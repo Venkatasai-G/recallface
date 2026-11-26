@@ -1626,77 +1626,77 @@ else:
         st.stop()
 
     # ========================================================
-# DISPLAY CANDIDATE GRID
-# ========================================================
+    # DISPLAY CANDIDATE GRID
+    # ========================================================
 
-st.markdown("### Select the closest-looking face")
+    st.markdown("### Select the closest-looking face")
 
-NUM_COLUMNS = 6
-IMAGE_WIDTH = 145
+    NUM_COLUMNS = 6
+    IMAGE_WIDTH = 145
 
-columns = st.columns(NUM_COLUMNS, gap="small")
+    columns = st.columns(NUM_COLUMNS, gap="small")
 
-for index, image_path in enumerate(image_paths):
+    for index, image_path in enumerate(image_paths):
 
-    column = columns[index % NUM_COLUMNS]
+        column = columns[index % NUM_COLUMNS]
 
-    with column:
+        with column:
 
-        st.image(
-            str(image_path),
-            width=IMAGE_WIDTH,
-        )
-
-        face_number = index + 1
-
-        if st.button(
-            f"Select Face {face_number}",
-            key=f"select_{current_round}_{index}",
-            use_container_width=True,
-        ):
-
-            st.session_state["selected_face"] = face_number
-
-            st.session_state["selected_image_path"] = str(
-                image_path
+            st.image(
+                str(image_path),
+                width=IMAGE_WIDTH,
             )
 
-            # Store the latent corresponding to the
-            # selected candidate.
+            face_number = index + 1
 
-            if current_round == 1:
+            if st.button(
+                f"Select Face {face_number}",
+                key=f"select_{current_round}_{index}",
+                use_container_width=True,
+            ):
 
-                selected_latent = get_starter_latent(
-                    face_number
+                st.session_state["selected_face"] = face_number
+
+                st.session_state["selected_image_path"] = str(
+                    image_path
                 )
 
-                if selected_latent is not None:
+                # Store the latent corresponding to the
+                # selected candidate.
 
-                    st.session_state["current_latent"] = (
-                        selected_latent
+                if current_round == 1:
+
+                    selected_latent = get_starter_latent(
+                        face_number
                     )
 
-            else:
-
-                candidate_latents = st.session_state.get(
-                    "candidate_latents"
-                )
-
-                if candidate_latents is not None:
-
-                    selected_index = face_number - 1
-
-                    if 0 <= selected_index < len(candidate_latents):
-
-                        selected_latent = candidate_latents[
-                            selected_index
-                        ]
+                    if selected_latent is not None:
 
                         st.session_state["current_latent"] = (
-                            selected_latent.detach().cpu().clone()
+                            selected_latent
                         )
 
-            st.rerun()
+                else:
+
+                    candidate_latents = st.session_state.get(
+                        "candidate_latents"
+                    )
+
+                    if candidate_latents is not None:
+
+                        selected_index = face_number - 1
+
+                        if 0 <= selected_index < len(candidate_latents):
+
+                            selected_latent = candidate_latents[
+                                selected_index
+                            ]
+
+                            st.session_state["current_latent"] = (
+                                selected_latent.detach().cpu().clone()
+                            )
+
+                st.rerun()
 
     # ========================================================
 
